@@ -28,5 +28,8 @@ export function resolveSecurityTarget(target,id='target'){
     return{kind:'repo',target,...discover(root)};
   }
   const u=new URL(target);
-  return{kind:'url',target,relayUrl:`${u.protocol==='https:'?'wss':'ws'}://${u.host}/relay`,licenseUrl:'',gameId:'',protectedGameIds:[],discoveredGameIds:[],gameSelectionRequired:true};
+  if(!['https:','http:'].includes(u.protocol))throw new Error('Somente URLs HTTP/HTTPS são aceitas.');
+  const isLicenseEndpoint=/\/api\/licenses\/validate\/?$/i.test(u.pathname);
+  if(isLicenseEndpoint)return{kind:'license-api',target,relayUrl:'',licenseUrl:u.href,gameId:'',protectedGameIds:[],discoveredGameIds:[],gameSelectionRequired:false};
+  return{kind:'url',target,relayUrl:'',licenseUrl:'',gameId:'',protectedGameIds:[],discoveredGameIds:[],gameSelectionRequired:true};
 }
