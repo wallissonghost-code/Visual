@@ -1,0 +1,37 @@
+name: Visual QA Bots
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: 'URL do repositório GitHub ou URL da página'
+        required: true
+        type: string
+      mode:
+        description: 'repo = código; url = navegador'
+        required: true
+        default: repo
+        type: choice
+        options: [repo, url]
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: npm install
+      - run: npx playwright install --with-deps chromium webkit
+        if: ${{ inputs.mode == 'url' }}
+      - name: Run bots
+        run: npm run audit -- --mode "${{ inputs.mode }}" --target "${{ inputs.target }}"
+        continue-on-error: true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: visual-qa-report
+          path: |
+            reports/
+            .visual-work/*.png
+          if-no-files-found: ignore
