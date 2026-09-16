@@ -4,13 +4,9 @@ import {execFileSync} from 'node:child_process';
 
 const TEXT=new Set(['.js','.mjs','.cjs','.ts','.tsx','.jsx','.html','.json','.yml','.yaml','.md']);
 const SKIP=new Set(['.git','node_modules','dist','build','.next']);
-const KNOWN_REPO_SECURITY_TARGETS=new Map([
-  ['wallissonghost-code/projeto-daniel',{licenseUrl:'https://pa.wallissonghost.workers.dev/api/licenses/validate'}]
-]);
 function walk(root,out=[]){for(const e of fs.readdirSync(root,{withFileTypes:true})){if(SKIP.has(e.name))continue;const p=path.join(root,e.name);if(e.isDirectory())walk(p,out);else if(TEXT.has(path.extname(e.name)))out.push(p)}return out}
 function uniq(a){return[...new Set(a.filter(Boolean))]}
 function values(text,re){const out=[];let m;re.lastIndex=0;while((m=re.exec(text)))out.push(m[1]);return out}
-function repoSlug(target){try{const u=new URL(target);if(u.hostname.toLowerCase()!=='github.com')return'';return u.pathname.replace(/^\/+|\/+$/g,'').replace(/\.git$/i,'').toLowerCase()}catch{return''}}
 function discover(root){
   let all='';
   for(const f of walk(root)){try{all+='\n'+fs.readFileSync(f,'utf8')}catch{}}
@@ -22,15 +18,14 @@ function discover(root){
     ...values(all,/(?:protectedGameIds|protectedGames|licenseRequiredGameIds)\s*[:=]\s*\[([^\]]+)\]/gi).flatMap(v=>[...v.matchAll(/['"]([A-Za-z0-9._-]+)['"]/g)].map(m=>m[1]))
   ]);
   const gameId=protectedGameIds.length===1?protectedGameIds[0]:'';
-  return{relayUrl,licenseUrl,gameId,protectedGameIds,discoveredGameIds,gameSelectionRequired:protectedGameIds.length!==1};
+  return{relayUrl,licenseUrl,licenseSource:licenseUrl?'repository':'not-found',gameId,protectedGameIds,discoveredGameIds,gameSelectionRequired:protectedGameIds.length!==1};
 }
 export function resolveSecurityTarget(target,id='target'){
   if(/^https:\/\/github\.com\//i.test(target)){
     const root=path.resolve('.visual-work',`security-${id}`);
     fs.rmSync(root,{recursive:true,force:true});
     execFileSync('git',['clone','--depth=1',target,root],{stdio:'pipe',timeout:60000});
-    const discovered=discover(root),known=KNOWN_REPO_SECURITY_TARGETS.get(repoSlug(target))||{};
-    return{kind:'repo',target,...discovered,licenseUrl:discovered.licenseUrl||known.licenseUrl||'',licenseSource:discovered.licenseUrl?'repository':known.licenseUrl?'known-repository-map':'not-found'};
+    return{kind:'repo',target,...discover(root)};
   }
   const u=new URL(target);
   if(!['https:','http:'].includes(u.protocol))throw new Error('Somente URLs HTTP/HTTPS são aceitas.');
