@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "postinstall": "playwright install chromium",
+    "postinstall": "PLAYWRIGHT_BROWSERS_PATH=0 playwright install chromium",
     "audit": "node src/cli.js",
     "audit:repo": "node src/cli.js --mode repo",
     "audit:url": "node src/cli.js --mode url",
