@@ -1,8 +1,10 @@
-import { chromium } from '@playwright/test';
 import path from 'node:path';
 
-// O servidor instala apenas Chromium. Emula os viewports/touch necessários sem
-// depender de WebKit, mantendo o modo URL funcional no mesmo runtime do Mapa.
+// Must be set before Playwright is loaded. PLAYWRIGHT_BROWSERS_PATH=0 makes
+// Playwright resolve the hermetic browser bundled under node_modules.
+process.env.PLAYWRIGHT_BROWSERS_PATH='0';
+const { chromium } = await import('@playwright/test');
+
 const profiles=[
   {name:'desktop',viewport:{width:1440,height:900}},
   {name:'iphone',viewport:{width:390,height:844},isMobile:true,hasTouch:true},
@@ -11,7 +13,7 @@ const profiles=[
 export async function runBrowserAudit(url,work){
   const findings=[];
   for(const p of profiles){
-    const browser=await chromium.launch({headless:true,channel:'chromium'});
+    const browser=await chromium.launch({headless:true});
     const page=await browser.newPage({viewport:p.viewport,isMobile:p.isMobile,hasTouch:p.hasTouch});
     const errors=[];
     page.on('console',m=>{if(m.type()==='error') errors.push(m.text())});
