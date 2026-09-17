@@ -1,27 +1,36 @@
 import { chromium } from 'playwright';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 
 const SERVICE_RULES=[
-  ['Supabase',/supabase\.(co|in)|supabase\.com/i,'Banco/API'],
-  ['Firebase',/firebaseio\.com|firebasedatabase\.app|googleapis\.com\/identitytoolkit|firebaseapp\.com/i,'Banco/Auth/API'],
-  ['Render',/onrender\.com/i,'Servidor/API'],
-  ['Vercel',/vercel\.app|vercel-storage\.com/i,'Hosting/API'],
-  ['Cloudflare',/workers\.dev|pages\.dev|cloudflare\.com/i,'Edge/Hosting'],
-  ['GitHub',/githubusercontent\.com|github\.io/i,'Código/Hosting'],
-  ['MongoDB Atlas',/mongodb-api\.com|mongodb\.net/i,'Banco/API'],
-  ['Neon',/neon\.tech/i,'Banco PostgreSQL/API'],
-  ['Railway',/railway\.app/i,'Servidor/API']
+  ['Supabase',/(?:^|\.)supabase\.(?:co|in)$|(?:^|\.)supabase\.com$/i,'Banco/API'],
+  ['Firebase',/(?:^|\.)firebaseio\.com$|(?:^|\.)firebasedatabase\.app$|(?:^|\.)firebaseapp\.com$/i,'Banco/Auth/API'],
+  ['Google APIs',/(?:^|\.)googleapis\.com$/i,'API'],
+  ['Render',/(?:^|\.)onrender\.com$/i,'Servidor/API'],
+  ['Vercel',/(?:^|\.)vercel\.app$|(?:^|\.)vercel-storage\.com$/i,'Hosting/API'],
+  ['Cloudflare',/(?:^|\.)workers\.dev$|(?:^|\.)pages\.dev$|(?:^|\.)cloudflare\.com$/i,'Edge/Hosting'],
+  ['GitHub',/(?:^|\.)githubusercontent\.com$|(?:^|\.)github\.io$/i,'Código/Hosting'],
+  ['MongoDB Atlas',/(?:^|\.)mongodb-api\.com$|(?:^|\.)mongodb\.net$/i,'Banco/API'],
+  ['Neon',/(?:^|\.)neon\.tech$/i,'Banco PostgreSQL/API'],
+  ['Railway',/(?:^|\.)railway\.app$/i,'Servidor/API']
 ];
-function clean(raw){try{const u=new URL(raw);for(const k of [...u.searchParams.keys()])if(/token|key|secret|auth|password|session|jwt/i.test(k))u.searchParams.set(k,'[REDACTED]');return u.toString()}catch{return raw}}
-function classify(url){for(const [name,re,type] of SERVICE_RULES)if(re.test(url))return{name,type,confidence:'detectado'};return null}
-export async function mapUrlRuntime(target,{timeoutMs=15000}={}){
- const browser=await chromium.launch({headless:true});const context=await browser.newContext();const page=await context.newPage();
- const requests=[],sockets=[],errors=[];const started=Date.now();
- page.on('request',r=>{const u=clean(r.url());requests.push({method:r.method(),url:u,host:(()=>{try{return new URL(u).host}catch{return''}})(),resourceType:r.resourceType(),service:classify(u)})});
- page.on('response',r=>{const u=clean(r.url());for(let i=requests.length-1;i>=0;i--)if(requests[i].url===u&&requests[i].status==null){requests[i].status=r.status();break}});
- page.on('websocket',ws=>{const item={url:clean(ws.url()),service:classify(ws.url()),state:'open'};sockets.push(item);ws.on('close',()=>item.state='closed')});
- page.on('requestfailed',r=>errors.push({type:'request',url:clean(r.url()),error:r.failure()?.errorText||'failed'}));page.on('pageerror',e=>errors.push({type:'page',error:String(e.message||e)}));
- let navigation=null;try{const res=await page.goto(target,{waitUntil:'domcontentloaded',timeout:timeoutMs});navigation={status:res?.status()||null,finalUrl:clean(page.url())};await page.waitForTimeout(5000)}catch(e){navigation={status:null,finalUrl:clean(page.url()||target),error:e.message}}
- await browser.close();
- const hosts=[...new Set(requests.map(x=>x.host).filter(Boolean))];const services=[];for(const x of [...requests,...sockets])if(x.service&&!services.some(s=>s.name===x.service.name&&s.host===x.host)){let host='';try{host=new URL(x.url).host}catch{}services.push({...x.service,host})}
- return{target,navigation,durationMs:Date.now()-started,summary:{requests:requests.length,domains:hosts.length,webSockets:sockets.length,errors:errors.length,services:services.length},services,webSockets:sockets,requests,errors,limitations:['Somente tráfego observável pelo navegador é mapeado.','Bancos e serviços atrás de uma API própria não são visíveis diretamente.','Parâmetros com nomes sensíveis são ocultados no relatório.']};
+const SENSITIVE=/token|key|secret|auth|authorization|password|passwd|session|jwt|credential|api[-_]?key|access[-_]?token|refresh[-_]?token/i;
+function clean(raw){try{const u=new URL(raw);for(const k of [...u.searchParams.keys()])if(SENSITIVE.test(k))u.searchParams.set(k,'[REDACTED]');if(u.username)u.username='[REDACTED]';if(u.password)u.password='[REDACTED]';return u.toString()}catch{return String(raw||'')}}
+function classify(raw){try{const host=new URL(raw).hostname;for(const [name,re,type] of SERVICE_RULES)if(re.test(host))return{name,type,confidence:'Detectado'};}catch{}return null}
+function roleFor(url,type,service){if(service)return service.type;if(['xhr','fetch'].includes(type))return /\/api(?:\/|$)|graphql|rpc/i.test(url)?'API/servidor provável':'Endpoint dinâmico provável';return null}
+function privateIp(ip){if(net.isIP(ip)===4){const p=ip.split('.').map(Number);return p[0]===10||p[0]===127||p[0]===0||p[0]===169&&p[1]===254||p[0]===172&&p[1]>=16&&p[1]<=31||p[0]===192&&p[1]===168;}if(net.isIP(ip)===6)return ip==='::1'||ip.startsWith('fc')||ip.startsWith('fd')||ip.startsWith('fe80:');return false}
+async function assertPublicTarget(raw){let u;try{u=new URL(raw)}catch{throw new Error('URL inválida.')}if(!['http:','https:'].includes(u.protocol))throw new Error('Use somente http/https.');if(u.username||u.password)throw new Error('Credenciais na URL não são permitidas.');const host=u.hostname.toLowerCase();if(host==='localhost'||host.endsWith('.localhost')||net.isIP(host)&&privateIp(host))throw new Error('Somente destinos públicos são permitidos.');let addresses;try{addresses=await dns.lookup(host,{all:true})}catch{throw new Error('Não foi possível resolver o domínio.')}if(!addresses.length||addresses.some(x=>privateIp(x.address)))throw new Error('O destino resolve para rede local/privada e foi bloqueado.');return u.toString()}
+export async function mapUrlRuntime(target,{timeoutMs=15000,observeMs=5000}={}){
+ target=await assertPublicTarget(target);let browser;const requests=[],sockets=[],errors=[],started=Date.now();
+ try{
+  browser=await chromium.launch({headless:true});const context=await browser.newContext({serviceWorkers:'block'});const page=await context.newPage();
+  page.on('request',r=>{const raw=r.url(),u=clean(raw),service=classify(raw);let host='',endpoint='';try{const p=new URL(u);host=p.host;endpoint=p.pathname+p.search}catch{}requests.push({method:r.method(),url:u,host,endpoint,resourceType:r.resourceType(),status:null,service,role:roleFor(u,r.resourceType(),service)});});
+  page.on('response',r=>{const u=clean(r.url());for(let i=requests.length-1;i>=0;i--)if(requests[i].url===u&&requests[i].status==null){requests[i].status=r.status();break}});
+  page.on('websocket',ws=>{const raw=ws.url(),item={url:clean(raw),host:'',service:classify(raw),state:'open'};try{item.host=new URL(raw).host}catch{}sockets.push(item);ws.on('close',()=>item.state='closed');ws.on('socketerror',e=>errors.push({type:'websocket',url:item.url,error:String(e||'socket error')}));});
+  page.on('requestfailed',r=>errors.push({type:'request',url:clean(r.url()),error:r.failure()?.errorText||'failed'}));page.on('pageerror',e=>errors.push({type:'runtime',error:String(e.message||e)}));page.on('console',m=>{if(m.type()==='error')errors.push({type:'console',error:m.text().slice(0,500)})});
+  let navigation;try{const res=await page.goto(target,{waitUntil:'domcontentloaded',timeout:timeoutMs});navigation={status:res?.status()||null,finalUrl:clean(page.url())};await page.waitForTimeout(observeMs)}catch(e){navigation={status:null,finalUrl:clean(page.url()||target),error:String(e.message||e)}}
+  const hosts=[...new Set(requests.map(x=>x.host).filter(Boolean))],services=[];for(const x of [...requests,...sockets])if(x.service&&!services.some(s=>s.name===x.service.name&&s.host===x.host))services.push({...x.service,host:x.host});
+  const ownApiObserved=requests.some(r=>['xhr','fetch'].includes(r.resourceType)&&!r.service);const infrastructure={status:ownApiObserved?'Não observável':'Não observável',note:ownApiObserved?'A página chamou endpoint(s) sem provedor identificável. O navegador não revela banco, rede ou serviços internos atrás dessa API.':'Infraestrutura interna de backends não pode ser inferida sem evidência direta no tráfego do navegador.'};
+  return{target,navigation,durationMs:Date.now()-started,summary:{requests:requests.length,domains:hosts.length,webSockets:sockets.length,errors:errors.length,services:services.length},services,webSockets:sockets,requests,errors,infrastructure,legend:{detected:'Detectado = evidência direta no host observado.',probable:'Provável = função inferida pelo tipo/caminho da requisição, não pelo backend interno.',unobservable:'Não observável = informação escondida atrás de API/servidor.'},limitations:['Somente tráfego observável pelo navegador é mapeado.','Authorization, cookies, bodies e storage não são coletados.','Parâmetros sensíveis da URL são mascarados.','Bancos e serviços atrás de uma API própria não são inferidos.']};
+ }finally{await browser?.close().catch(()=>{})}
 }
