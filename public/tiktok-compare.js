@@ -1,4 +1,10 @@
 const $=s=>document.querySelector(s);
+const SAVED_LINKS_KEY='visual:tiktok-compare-links:v1';
+function loadSavedLinks(){try{const v=JSON.parse(localStorage.getItem(SAVED_LINKS_KEY)||'{}');if(v.a)$('#a').value=v.a;if(v.b)$('#b').value=v.b}catch{}}
+function saveLinks(){localStorage.setItem(SAVED_LINKS_KEY,JSON.stringify({a:$('#a').value.trim(),b:$('#b').value.trim()}))}
+loadSavedLinks();
+$('#a').addEventListener('input',saveLinks);
+$('#b').addEventListener('input',saveLinks);
 function yn(v){return v?'SIM':'não'}
 function fmt(d){
  const o=[],one=(x,n)=>{o.push(n);o.push('Entrada: '+x.input);o.push('Final: '+x.finalUrl);o.push('HTTP: '+(x.status??'-')+' | HTML: '+x.htmlBytes+' bytes');o.push('Perfil: @'+(x.username||'-')+' | Video ID: '+(x.id||'-')+' | ID no HTML: '+x.idOccurrences+'x');o.push('Canonical: '+(x.canonical||'-'));o.push('Marcadores: '+Object.entries(x.markers).filter(([,v])=>v).map(([k])=>k).join(', ')||'nenhum');o.push('')};
