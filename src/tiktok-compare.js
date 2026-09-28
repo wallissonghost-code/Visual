@@ -64,6 +64,12 @@ async function inspectOne(browser,input){
     return {...base,input:cleanUrl(input),requests:requests.slice(0,120),networkEvidence,rawHtml:html};
   } finally {await context.close()}
 }
+function realVideoCard(x){
+  const data=parseUniversalObject(x.rawHtml),item=findItemStruct(data,x.id);
+  if(!item)return {id:x.id,input:x.input,finalUrl:x.finalUrl,available:false,status:'DADOS_REAIS_NAO_ENCONTRADOS',username:x.username||null};
+  const parsed=parserContract(item),s=item.statsV2||item.stats||{},v=item.video||{},author=item.author||{};
+  return {id:x.id,input:x.input,finalUrl:x.finalUrl,available:parsed.accepted,status:parsed.accepted?'REAL':'PARCIAL',username:author.uniqueId||x.username||null,nickname:author.nickname||null,avatarUrl:author.avatarLarger||author.avatarMedium||author.avatarThumb||null,description:item.desc??item.description??'',createdAt:item.createTime??null,durationSeconds:v.duration??v.durationSeconds??null,coverUrl:v.cover||v.originCover||v.dynamicCover||null,metrics:{views:s.playCount??s.viewCount??null,likes:s.diggCount??s.likeCount??null,comments:s.commentCount??null,shares:s.shareCount??null,saves:s.collectCount??s.saveCount??null}};
+}
 function diff(a,b){
   const markerDiff={};
   for(const [k] of MARKERS)markerDiff[k]={a:!!a.markers[k],b:!!b.markers[k],same:!!a.markers[k]===!!b.markers[k]};
@@ -83,8 +89,8 @@ export async function compareTikTokVideos(urlA,urlB){
   let browser;
   try{
     browser=await chromium.launch({headless:true});
-    const a=await inspectOne(browser,urlA),b=await inspectOne(browser,urlB);
-    return {kind:'tiktok-video-compare',createdAt:new Date().toISOString(),a,b,diff:diff(a,b),note:'Comparação de evidências públicas observadas. Diferenças de payload não indicam, sozinhas, a causa interna no TikTok.'};
+    const a=await inspectOne(browser,urlA),b=await inspectOne(browser,urlB);const cards={A:realVideoCard(a),B:realVideoCard(b)};
+    return {kind:'tiktok-video-compare',createdAt:new Date().toISOString(),a,b,cards,diff:diff(a,b),note:'Comparação de evidências públicas observadas. Diferenças de payload não indicam, sozinhas, a causa interna no TikTok.'};
   } finally {await browser?.close().catch(()=>{})}
 }
 
