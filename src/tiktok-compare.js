@@ -367,10 +367,12 @@ export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
     onProgress('B','B: itemStruct '+(b.sources.html.itemStructFound?'SIM':'não')+' · parser '+(b.sources.html.parserAccepted?'ACEITOU':'não aceitou')+' · rede com ID '+b.sources.network.responsesWithTarget+'.');
     const divergence=firstDivergence(a,b);onProgress('diff','Primeira divergência medida: '+divergence.stage+'.');
     const user=rawB.username||rawA.username||null;
+    let warmNavigation={kind:'tiktok-warm-navigation',result:'NOT_RUN',error:null};
+    if(user){try{warmNavigation=await runWarmNavigationExperiment(browser,user,urlA,urlB,onProgress)}catch(e){warmNavigation={kind:'tiktok-warm-navigation',result:'ERROR',error:String(e.message||e)}}}
     let nativePostItemList={username:user||null,generated:false,captures:[],pendingAtReturn:0,error:null};
     if(user){try{nativePostItemList=await traceNativePostItemList(browser,user,[a.id,b.id].filter(Boolean),onProgress)}catch(e){nativePostItemList.error=String(e.message||e)}}
     onProgress('profile-item-list','Fluxo nativo: '+nativePostItemList.captures.length+' resposta(s) /api/post/item_list/ observada(s).');
-    return {kind:'tiktok-ab-trace',createdAt:new Date().toISOString(),a,b,firstDivergence:divergence,nativePostItemList,note:'Rastreamento observacional A→B. O teste de perfil apenas observa /api/post/item_list/ gerada naturalmente pelo TikTok; não fabrica a chamada, não reutiliza sessão e não inventa métricas.'};
+    return {kind:'tiktok-ab-trace',createdAt:new Date().toISOString(),a,b,firstDivergence:divergence,warmNavigation,nativePostItemList,note:'Rastreamento observacional A→B. O teste de perfil apenas observa /api/post/item_list/ gerada naturalmente pelo TikTok; não fabrica a chamada, não reutiliza sessão e não inventa métricas.'};
   }finally{await browser?.close().catch(()=>{})}
 }
 
