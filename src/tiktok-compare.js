@@ -32,7 +32,13 @@ function universalData(html){
     return {found:true,parsed:true,topKeys:Object.keys(data),paths:paths.filter(p=>/video|item|detail|stats|scope|webapp/i.test(p)).slice(0,120),videoIdPaths:videoIdPaths.slice(0,30)};
   }catch(e){return {found:true,parsed:false,error:String(e.message||e),paths:[],videoIdPaths:[],topKeys:[]}}
 }
-function findIdEvidence(value,targetId,path='
+function findIdEvidence(value,targetId,path='$',out=[],depth=0){
+  if(!targetId||depth>12||out.length>=40)return out;
+  if(value&&typeof value==='object'){for(const [k,v] of Object.entries(value)){const p=path+'.'+k;if(String(v)===String(targetId))out.push({path:p,parent:JSON.stringify(value).slice(0,6000)});findIdEvidence(v,targetId,p,out,depth+1)}}
+  return out;
+}
+function parseJsonEvidence(body,targetId){try{const data=JSON.parse(String(body||''));return {parsed:true,matches:findIdEvidence(data,targetId),topKeys:data&&typeof data==='object'?Object.keys(data).slice(0,40):[]}}catch(e){return {parsed:false,error:e.message,matches:[],topKeys:[]}}}
+function inspectHtml(html,finalUrl,status){
   const text=String(html||'');
   const markers=Object.fromEntries(MARKERS.map(([k,re])=>[k,re.test(text)]));
   const identity=videoIdentity(finalUrl,text);
