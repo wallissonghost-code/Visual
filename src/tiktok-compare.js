@@ -245,6 +245,24 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
       const reqHeaders=r.request().headers();
       const rec={...reqSummary,pcBaselineComparison:compareWithPcBaseline(reqSummary.query),requestContext:{referer:reqHeaders.referer||null,cookiePresent:Boolean(reqHeaders.cookie),origin:reqHeaders.origin||null},status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null,targets:{}};
       try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'));for(const id of targetIds)rec.targets[id]={present:rec.summary.ids.includes(String(id)),item:rec.summary.items.find(x=>x.id===String(id))||null}}catch(e){rec.bodyError=String(e.message||e)}
+      // Controle permanece intacto. Depois dele, repetimos uma única vez a mesma
+      // requisição alterando somente region=BR para medir se esse atalho muda a resposta.
+      if(!u.searchParams.has('__visual_region_probe')){
+        try{
+          const probeUrl=new URL(r.url());
+          probeUrl.searchParams.set('region','BR');
+          probeUrl.searchParams.set('__visual_region_probe','1');
+          const probe=await page.evaluate(async url=>{
+            try{
+              const res=await fetch(url,{method:'GET',credentials:'include'});
+              const text=await res.text();
+              return {status:res.status,contentType:res.headers.get('content-type')||'',body:text};
+            }catch(e){return {error:String(e?.message||e)}}
+          },probeUrl.toString());
+          rec.regionBrProbe={attempted:true,changedOnly:'region US→BR (+ internal probe marker)',signatureReused:true,status:probe.status??null,contentType:probe.contentType||'',summary:probe.body!==undefined?summarizeItemListBody(probe.body):null,error:probe.error||null};
+          onProgress('profile-region-br','Teste BR adulterado: HTTP '+(rec.regionBrProbe.status??'erro')+' · '+(rec.regionBrProbe.summary?.bytes??0)+' bytes · '+(rec.regionBrProbe.summary?.itemCount??0)+' itens.');
+        }catch(e){rec.regionBrProbe={attempted:true,error:String(e.message||e)}}
+      }
       captures.push(rec);onProgress('profile-item-list','/api/post/item_list/ HTTP '+rec.status+' · '+(rec.summary?.bytes??0)+' bytes · '+(rec.summary?.itemCount??0)+' itens · '+rec.pcBaselineComparison.differences.length+' diferença(s) públicas vs PC.');
     })();pending.add(task);task.finally(()=>pending.delete(task));
   });
