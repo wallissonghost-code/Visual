@@ -236,11 +236,16 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
   });
   try{
     onProgress('profile','Abrindo @'+user+' normalmente; o Visual só observará a /api/post/item_list/ criada pelo próprio TikTok…');
-    try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('profile','Navegação do perfil: '+e.message)}
-    for(let i=0;i<8;i++){await page.mouse.wheel(0,1800).catch(()=>{});await page.waitForTimeout(1300)}
-    await page.waitForTimeout(2500);
-    const deadline=Date.now()+15000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}
-    return {username:user,emulatedContext:{ua:'Windows Chrome 153',locale:'pt-BR',timezone:'America/Sao_Paulo',viewport:'1600x900'},generated:captures.length>0,captures,pendingAtReturn:pending.size};
+    let navigationError=null,interactionErrors=[];
+    try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000})}catch(e){navigationError=String(e.message||e);onProgress('profile','Navegação do perfil falhou: '+navigationError+' · continuando a observação da rede…')}
+    for(let i=0;i<8;i++){
+      try{await page.mouse.wheel(0,1800)}catch(e){interactionErrors.push('wheel: '+String(e.message||e))}
+      try{await page.waitForTimeout(1300)}catch(e){interactionErrors.push('wait: '+String(e.message||e));break}
+    }
+    try{await page.waitForTimeout(2500)}catch(e){interactionErrors.push('final-wait: '+String(e.message||e))}
+    const deadline=Date.now()+15000;
+    while(pending.size&&Date.now()<deadline){try{await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}catch(e){interactionErrors.push('pending-wait: '+String(e.message||e));break}}
+    return {username:user,emulatedContext:{ua:'Windows Chrome 153',locale:'pt-BR',timezone:'America/Sao_Paulo',viewport:'1600x900'},navigationError,interactionErrors:[...new Set(interactionErrors)].slice(0,8),generated:captures.length>0,captures,pendingAtReturn:pending.size};
   }finally{await context.close().catch(()=>{})}
 }
 export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
