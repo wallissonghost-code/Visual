@@ -17,6 +17,21 @@ function videoIdentity(url,html=''){
   const idOccurrences=id?(String(html).match(new RegExp(id,'g'))||[]).length:0;
   return {id,username:user,idOccurrences};
 }
+function contexts(text,needle,radius=260,limit=8){
+  const src=String(text||''),low=src.toLowerCase(),q=String(needle).toLowerCase(),out=[];let at=0;
+  while(out.length<limit&&(at=low.indexOf(q,at))>=0){const start=Math.max(0,at-radius),end=Math.min(src.length,at+q.length+radius);out.push({offset:at,context:src.slice(start,end).replace(/\s+/g,' ')});at+=q.length}
+  return out
+}
+function universalData(html){
+  const text=String(html||''),m=text.match(/<script[^>]+id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if(!m)return {found:false,parsed:false,paths:[],videoIdPaths:[],topKeys:[]};
+  try{
+    const data=JSON.parse(m[1]),paths=[],videoIdPaths=[];
+    const walk=(v,path,depth=0)=>{if(depth>8||paths.length>=500)return;if(v&&typeof v==='object'){for(const [k,x] of Object.entries(v)){const p=path?path+'.'+k:k;paths.push(p);if(typeof x==='string'&&/^\d{8,}$/.test(x)&&/video|item|id/i.test(p))videoIdPaths.push({path:p,value:x});walk(x,p,depth+1)}}};
+    walk(data,'');
+    return {found:true,parsed:true,topKeys:Object.keys(data),paths:paths.filter(p=>/video|item|detail|stats|scope|webapp/i.test(p)).slice(0,120),videoIdPaths:videoIdPaths.slice(0,30)};
+  }catch(e){return {found:true,parsed:false,error:String(e.message||e),paths:[],videoIdPaths:[],topKeys:[]}}
+}
 function inspectHtml(html,finalUrl,status){
   const text=String(html||'');
   const markers=Object.fromEntries(MARKERS.map(([k,re])=>[k,re.test(text)]));
@@ -24,7 +39,10 @@ function inspectHtml(html,finalUrl,status){
   let canonical=null;
   const m=text.match(/<link[^>]+rel=["']canonical["'][^>]+href=["']([^"']+)/i)||text.match(/<link[^>]+href=["']([^"']+)["'][^>]+rel=["']canonical["']/i);
   if(m) canonical=cleanUrl(m[1]);
-  return {status,finalUrl:cleanUrl(finalUrl),canonical,htmlBytes:Buffer.byteLength(text),...identity,markers};
+  const detailContexts=contexts(text,'video-detail');
+  const idContexts=identity.id?contexts(text,identity.id,220,6):[];
+  const universal=universalData(text);
+  return {status,finalUrl:cleanUrl(finalUrl),canonical,htmlBytes:Buffer.byteLength(text),...identity,markers,diagnostics:{videoDetail:{occurrences:detailContexts.length,contexts:detailContexts},videoId:{occurrences:idContexts.length,contexts:idContexts},universal}};
 }
 async function inspectOne(browser,input){
   if(!isTikTok(input))throw new Error('Use somente links públicos do TikTok.');
