@@ -179,6 +179,27 @@ export async function runTikTokHypotheses(username,urlA,urlB,onProgress=()=>{}){
   }finally{await browser?.close().catch(()=>{})}
 }
 
+function summarizeItemListBody(body){
+  const out={bytes:Buffer.byteLength(String(body||'')),jsonParsed:false,topKeys:[],listPath:null,itemCount:0,ids:[],cursor:null,hasMore:null,error:null,items:[]};
+  try{
+    const data=JSON.parse(String(body||''));out.jsonParsed=true;out.topKeys=data&&typeof data==='object'?Object.keys(data).slice(0,40):[];
+    const candidates=[['itemList',data?.itemList],['item_list',data?.item_list],['items',data?.items],['data.itemList',data?.data?.itemList],['data.item_list',data?.data?.item_list],['data.items',data?.data?.items]];
+    const hit=candidates.find(([,v])=>Array.isArray(v));if(hit){out.listPath=hit[0];out.itemCount=hit[1].length;out.ids=hit[1].map(x=>String(x?.id||x?.itemId||x?.aweme_id||'')).filter(Boolean);out.items=hit[1].slice(0,5).map(x=>{const s=x?.statsV2||x?.stats||{};return{id:String(x?.id||x?.itemId||x?.aweme_id||''),desc:String(x?.desc||x?.description||'').slice(0,160),views:s.playCount??s.viewCount??null,likes:s.diggCount??s.likeCount??null,comments:s.commentCount??null,shares:s.shareCount??null,saves:s.collectCount??s.saveCount??null}})}
+    out.cursor=data?.cursor??data?.data?.cursor??null;out.hasMore=data?.hasMore??data?.has_more??data?.data?.hasMore??data?.data?.has_more??null;
+  }catch(e){out.error=String(e.message||e)}
+  return out;
+}
+export async function dumpTikTokItemList(username,onProgress=()=>{}){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');let browser;
+  try{
+    browser=await chromium.launch({headless:true});const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),dumps=[];
+    page.on('response',async r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const rec={url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished().catch(()=>{});const body=await r.text();rec.bodyRead=true;rec.summary=summarizeItemListBody(body)}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list','item_list HTTP '+rec.status+' · body '+(rec.bodyRead?(rec.summary?.bytes||0)+' bytes':'FALHOU')+' · itens '+(rec.summary?.itemCount??'-'))});
+    onProgress('profile','Abrindo @'+user+' para deixar o próprio TikTok gerar item_list…');try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('profile','Navegação: '+e.message)}
+    for(let i=0;i<8;i++){await page.mouse.wheel(0,1800).catch(()=>{});await page.waitForTimeout(1300)}
+    await page.waitForTimeout(2000);return {kind:'tiktok-item-list-dump',createdAt:new Date().toISOString(),username:user,dumps,note:'Diagnóstico bruto da resposta /api/post/item_list/ gerada pelo próprio TikTok. Não inventa métricas.'};
+  }finally{await browser?.close().catch(()=>{})}
+}
+
 export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');onProgress('start','Iniciando busca por @'+user+'…');
   let browser;
