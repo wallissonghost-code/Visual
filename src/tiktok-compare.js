@@ -314,6 +314,49 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
     return {username:user,emulatedContext:{ua:'Windows Chrome 153',navigatorPlatform:'Win32',locale:'pt-BR',timezone:'America/Sao_Paulo',viewport:'1600x900',profileLang:'pt-BR',interaction:'passive-no-click-no-scroll'},navigationError,interactionErrors:[...new Set(interactionErrors)].slice(0,8),generated:captures.length>0,captures,fallback,pendingAtReturn:pending.size};
   }finally{await context.close().catch(()=>{})}
 }
+
+async function runWarmNavigationExperiment(browser,user,urlA,urlB,onProgress=()=>{}){
+  const targetB=videoIdentity(urlB).id;
+  async function measure(page,label){
+    let html='';try{html=await page.content()}catch{}
+    const data=parseUniversalObject(html);
+    const item=targetB?findItemStruct(data,targetB):null;
+    const parsed=parserContract(item);
+    return {label,finalUrl:cleanUrl(page.url()),htmlBytes:Buffer.byteLength(html),targetId:targetB,
+      targetIdOccurrences:targetB?(html.match(new RegExp(String(targetB),'g'))||[]).length:0,
+      universalFound:!!data,itemStructFound:!!item,parserAccepted:!!parsed.accepted,metrics:parsed.fields||null};
+  }
+  async function visit(page,url,wait=3000){
+    let status=null,error=null;
+    try{const res=await page.goto(url,{waitUntil:'domcontentloaded',timeout:25000});status=res?.status()||null;await page.waitForTimeout(wait)}
+    catch(e){error=String(e.message||e)}
+    return {status,error};
+  }
+  const cold=await browser.newContext({serviceWorkers:'block'});
+  let coldB;
+  try{
+    const page=await cold.newPage();onProgress('state-cold','Abrindo B em contexto frio…');
+    const nav=await visit(page,urlB,3500);coldB=await measure(page,'B_COLD');coldB.httpStatus=nav.status;coldB.navigationError=nav.error;
+  }finally{await cold.close().catch(()=>{})}
+  const warm=await browser.newContext({serviceWorkers:'block'});
+  const page=await warm.newPage(),timeline=[];
+  try{
+    for(const step of [
+      ['HOME','https://www.tiktok.com/',2500],
+      ['PROFILE','https://www.tiktok.com/@'+encodeURIComponent(user),3000],
+      ['A_WARMUP',urlA,3000],
+      ['B_AFTER_WARMUP',urlB,4000]
+    ]){
+      onProgress('state-warm','Abrindo '+step[0]+' no mesmo contexto…');
+      const nav=await visit(page,step[1],step[2]),snap=await measure(page,step[0]);snap.httpStatus=nav.status;snap.navigationError=nav.error;timeline.push(snap);
+    }
+    const warmB=timeline[timeline.length-1];
+    const result=warmB.itemStructFound||warmB.parserAccepted?'B_APPEARED_AFTER_WARMUP':'B_STILL_MISSING_AFTER_WARMUP';
+    onProgress('state-result',result+' · itemStruct '+(warmB.itemStructFound?'SIM':'não')+'.');
+    return {kind:'tiktok-warm-navigation',coldB,warmTimeline:timeline,warmB,result};
+  }finally{await warm.close().catch(()=>{})}
+}
+
 export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
   if(!isTikTok(urlA)||!isTikTok(urlB))throw new Error('Informe dois links públicos do TikTok.');let browser;
   try{
