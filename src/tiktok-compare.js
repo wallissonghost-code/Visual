@@ -184,10 +184,32 @@ function summarizeItemListBody(body){
   try{
     const data=JSON.parse(String(body||''));out.jsonParsed=true;out.topKeys=data&&typeof data==='object'?Object.keys(data).slice(0,40):[];
     const candidates=[['itemList',data?.itemList],['item_list',data?.item_list],['items',data?.items],['data.itemList',data?.data?.itemList],['data.item_list',data?.data?.item_list],['data.items',data?.data?.items]];
-    const hit=candidates.find(([,v])=>Array.isArray(v));if(hit){out.listPath=hit[0];out.itemCount=hit[1].length;out.ids=hit[1].map(x=>String(x?.id||x?.itemId||x?.aweme_id||'')).filter(Boolean);out.items=hit[1].slice(0,5).map(x=>{const s=x?.statsV2||x?.stats||{};return{id:String(x?.id||x?.itemId||x?.aweme_id||''),desc:String(x?.desc||x?.description||'').slice(0,160),views:s.playCount??s.viewCount??null,likes:s.diggCount??s.likeCount??null,comments:s.commentCount??null,shares:s.shareCount??null,saves:s.collectCount??s.saveCount??null}})}
+    const hit=candidates.find(([,v])=>Array.isArray(v));if(hit){out.listPath=hit[0];out.itemCount=hit[1].length;out.ids=hit[1].map(x=>String(x?.id||x?.itemId||x?.aweme_id||'')).filter(Boolean);out.items=hit[1].map(x=>{const s=x?.statsV2||x?.stats||{};return{id:String(x?.id||x?.itemId||x?.aweme_id||''),desc:String(x?.desc||x?.description||'').slice(0,160),views:s.playCount??s.viewCount??null,likes:s.diggCount??s.likeCount??null,comments:s.commentCount??null,shares:s.shareCount??null,saves:s.collectCount??s.saveCount??null}})}
     out.cursor=data?.cursor??data?.data?.cursor??null;out.hasMore=data?.hasMore??data?.has_more??data?.data?.hasMore??data?.data?.has_more??null;
   }catch(e){out.error=String(e.message||e)}
   return out;
+}
+function summarizeProfileDocument(html,env={}) {
+  const text=String(html||'');
+  const universalMatch=text.match(/<script[^>]+id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i);
+  let universal={found:!!universalMatch,bytes:universalMatch?Buffer.byteLength(universalMatch[1]):0,jsonParsed:false,topKeys:[],defaultScopeKeys:[],videoDetailPresent:false,itemStructPresent:false};
+  if(universalMatch){
+    try{
+      const data=JSON.parse(universalMatch[1]);
+      universal.jsonParsed=true;
+      universal.topKeys=Object.keys(data||{}).slice(0,40);
+      universal.defaultScopeKeys=Object.keys(data?.__DEFAULT_SCOPE__||{}).slice(0,80);
+      const vd=data?.__DEFAULT_SCOPE__?.['webapp.video-detail'];
+      universal.videoDetailPresent=!!vd;
+      universal.itemStructPresent=!!vd?.itemInfo?.itemStruct;
+    }catch{}
+  }
+  return {
+    htmlBytes:Buffer.byteLength(text),
+    universal,
+    markers:Object.fromEntries(MARKERS.map(([k,re])=>[k,re.test(text)])),
+    environment:env
+  };
 }
 export async function dumpTikTokItemList(username,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
@@ -210,11 +232,31 @@ export async function dumpTikTokItemList(username,onProgress=()=>{}){
         try{await page.goto(profile.url,{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('navigation',profile.name+': '+e.message)}
         for(let i=0;i<6;i++){await page.mouse.wheel(0,1700).catch(()=>{});await page.waitForTimeout(900)}
         await page.waitForTimeout(2200);
+        const env=await page.evaluate(()=>({
+          userAgent:navigator.userAgent,
+          platform:navigator.platform,
+          language:navigator.language,
+          languages:[...(navigator.languages||[])],
+          webdriver:navigator.webdriver,
+          hardwareConcurrency:navigator.hardwareConcurrency,
+          deviceMemory:navigator.deviceMemory??null,
+          timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+          screen:{width:screen.width,height:screen.height,colorDepth:screen.colorDepth,pixelDepth:screen.pixelDepth},
+          viewport:{width:innerWidth,height:innerHeight,devicePixelRatio},
+          cookieNames:document.cookie.split(';').map(x=>x.trim().split('=')[0]).filter(Boolean).slice(0,80),
+          cookieCount:document.cookie.split(';').filter(x=>x.trim()).length,
+          historyLength:history.length,
+          href:location.href
+        })).catch(()=>({error:'environment-unavailable'}));
+        const html=await page.content().catch(()=>'');
+        const documentDiagnostic=summarizeProfileDocument(html,env);
+        dumps.push({attempt:profile.name,type:'PROFILE_DOCUMENT',status:null,summary:null,documentDiagnostic});
+        onProgress('document',profile.name+': HTML '+documentDiagnostic.htmlBytes+' bytes · Universal '+documentDiagnostic.universal.bytes+' bytes · webdriver '+String(env.webdriver)+'.');
         const deadline=Date.now()+12000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(200)])}
       }finally{await context.close().catch(()=>{})}
       if(dumps.some(x=>x.attempt===profile.name&&x.summary?.itemCount>0)){onProgress('success',profile.name+' encontrou vídeos reais. Encerrando bateria.');break}
     }
-    return {kind:'tiktok-item-list-battery',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:0,note:'Bateria automática: padrão, Windows/BR e Windows/BR com navegação aquecida. Cada tentativa observa apenas item_list gerada pelo próprio TikTok.'};
+    return {kind:'tiktok-item-list-battery',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:0,note:'Bateria automática: cada tentativa registra a item_list nativa e o documento/Universal Data realmente recebido. Valores de cookies não são exportados; apenas nomes e contagem.'};
   }finally{await browser?.close().catch(()=>{})}
 }
 function sourceSnapshot(label,x){
