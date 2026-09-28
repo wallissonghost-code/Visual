@@ -220,6 +220,29 @@ function firstDivergence(a,b){
   ];
   const hit=checks.find(x=>!x[1]);return hit?{stage:hit[0],...hit[2]}:{stage:'SEM_DIVERGENCIA_NOS_ESTAGIOS_MEDIDOS'};
 }
+async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{}){
+  const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),captures=[],pending=new Set();
+  const summarizeRequest=(raw)=>{
+    try{const u=new URL(raw),q=u.searchParams;return {path:u.pathname,method:'GET',query:{user_is_login:q.get('user_is_login'),secUidPresent:q.has('secUid'),deviceIdPresent:q.has('device_id'),odinIdPresent:q.has('odinId'),verifyFpPresent:q.has('verifyFp'),msTokenPresent:q.has('msToken'),xBogusPresent:q.has('X-Bogus'),xGnarlyPresent:q.has('X-Gnarly'),xDynosaurPresent:q.has('X-Dynosaur'),count:q.get('count'),cursor:q.get('cursor'),region:q.get('region'),browserPlatform:q.get('browser_platform')}}}catch{return {path:String(raw||'').slice(0,240),method:'GET',query:{}}}
+  };
+  page.on('response',r=>{
+    let u;try{u=new URL(r.url())}catch{return}
+    if(u.hostname!=='www.tiktok.com'||u.pathname!=='/api/post/item_list/')return;
+    const task=(async()=>{
+      const rec={...summarizeRequest(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null,targets:{}};
+      try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'));for(const id of targetIds)rec.targets[id]={present:rec.summary.ids.includes(String(id)),item:rec.summary.items.find(x=>x.id===String(id))||null}}catch(e){rec.bodyError=String(e.message||e)}
+      captures.push(rec);onProgress('profile-item-list','/api/post/item_list/ HTTP '+rec.status+' · '+(rec.summary?.bytes??0)+' bytes · '+(rec.summary?.itemCount??0)+' itens.');
+    })();pending.add(task);task.finally(()=>pending.delete(task));
+  });
+  try{
+    onProgress('profile','Abrindo @'+user+' normalmente; o Visual só observará a /api/post/item_list/ criada pelo próprio TikTok…');
+    try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('profile','Navegação do perfil: '+e.message)}
+    for(let i=0;i<8;i++){await page.mouse.wheel(0,1800).catch(()=>{});await page.waitForTimeout(1300)}
+    await page.waitForTimeout(2500);
+    const deadline=Date.now()+15000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}
+    return {username:user,generated:captures.length>0,captures,pendingAtReturn:pending.size};
+  }finally{await context.close().catch(()=>{})}
+}
 export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
   if(!isTikTok(urlA)||!isTikTok(urlB))throw new Error('Informe dois links públicos do TikTok.');let browser;
   try{
@@ -229,7 +252,11 @@ export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
     onProgress('B','Abrindo B no mesmo navegador e repetindo exatamente a coleta…');const rawB=await inspectOne(browser,urlB),b=sourceSnapshot('B',rawB);
     onProgress('B','B: itemStruct '+(b.sources.html.itemStructFound?'SIM':'não')+' · parser '+(b.sources.html.parserAccepted?'ACEITOU':'não aceitou')+' · rede com ID '+b.sources.network.responsesWithTarget+'.');
     const divergence=firstDivergence(a,b);onProgress('diff','Primeira divergência medida: '+divergence.stage+'.');
-    return {kind:'tiktok-ab-trace',createdAt:new Date().toISOString(),a,b,firstDivergence:divergence,note:'Rastreamento observacional A→B. Usa somente dados públicos realmente recebidos; não reconstrói nem inventa métricas do B.'};
+    const user=b.finalUrl.match(/tiktok\\.com\\/@([^/?#]+)/i)?.[1]||a.finalUrl.match(/tiktok\\.com\\/@([^/?#]+)/i)?.[1]||b.id&&rawB.username||a.id&&rawA.username;
+    let nativePostItemList={username:user||null,generated:false,captures:[],pendingAtReturn:0,error:null};
+    if(user){try{nativePostItemList=await traceNativePostItemList(browser,user,[a.id,b.id].filter(Boolean),onProgress)}catch(e){nativePostItemList.error=String(e.message||e)}}
+    onProgress('profile-item-list','Fluxo nativo: '+nativePostItemList.captures.length+' resposta(s) /api/post/item_list/ observada(s).');
+    return {kind:'tiktok-ab-trace',createdAt:new Date().toISOString(),a,b,firstDivergence:divergence,nativePostItemList,note:'Rastreamento observacional A→B. O teste de perfil apenas observa /api/post/item_list/ gerada naturalmente pelo TikTok; não fabrica a chamada, não reutiliza sessão e não inventa métricas.'};
   }finally{await browser?.close().catch(()=>{})}
 }
 
