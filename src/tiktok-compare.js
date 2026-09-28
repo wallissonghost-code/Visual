@@ -252,7 +252,7 @@ export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
     onProgress('B','Abrindo B no mesmo navegador e repetindo exatamente a coleta…');const rawB=await inspectOne(browser,urlB),b=sourceSnapshot('B',rawB);
     onProgress('B','B: itemStruct '+(b.sources.html.itemStructFound?'SIM':'não')+' · parser '+(b.sources.html.parserAccepted?'ACEITOU':'não aceitou')+' · rede com ID '+b.sources.network.responsesWithTarget+'.');
     const divergence=firstDivergence(a,b);onProgress('diff','Primeira divergência medida: '+divergence.stage+'.');
-    const user=b.finalUrl.match(/tiktok\\.com\\/@([^/?#]+)/i)?.[1]||a.finalUrl.match(/tiktok\\.com\\/@([^/?#]+)/i)?.[1]||b.id&&rawB.username||a.id&&rawA.username;
+    const user=rawB.username||rawA.username||null;
     let nativePostItemList={username:user||null,generated:false,captures:[],pendingAtReturn:0,error:null};
     if(user){try{nativePostItemList=await traceNativePostItemList(browser,user,[a.id,b.id].filter(Boolean),onProgress)}catch(e){nativePostItemList.error=String(e.message||e)}}
     onProgress('profile-item-list','Fluxo nativo: '+nativePostItemList.captures.length+' resposta(s) /api/post/item_list/ observada(s).');
