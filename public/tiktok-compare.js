@@ -1,4 +1,5 @@
 const $=s=>document.querySelector(s);
+fetch('/api/version',{cache:'no-store'}).then(r=>r.json()).then(v=>{if($('#appVersion'))$('#appVersion').textContent='v'+v.version+(v.build?' · '+v.build:'')}).catch(()=>{if($('#appVersion'))$('#appVersion').textContent='versão indisponível'});
 const SAVED_LINKS_KEY='visual:tiktok-compare-links:v1';
 const SAVED_USER_KEY='visual:tiktok-compare-user:v1';
 const DEFAULT_LINKS={a:'https://vt.tiktok.com/ZSb6VQYVo/',b:'https://vt.tiktok.com/ZSb6VaLoG/'};
