@@ -190,17 +190,31 @@ function summarizeItemListBody(body){
   return out;
 }
 export async function dumpTikTokItemList(username,onProgress=()=>{}){
-  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');let browser;
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+  const profiles=[
+    {name:'PADRAO',options:{serviceWorkers:'block'},init:null,url:'https://www.tiktok.com/@'+encodeURIComponent(user)},
+    {name:'WINDOWS_BR',options:{serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1600,height:900},screen:{width:1600,height:900},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'},init:'win',url:'https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR'},
+    {name:'WINDOWS_BR_AQUECIDO',options:{serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1600,height:900},screen:{width:1600,height:900},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'},init:'win',warm:true,url:'https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR'}
+  ];
+  let browser;const dumps=[];
   try{
-    browser=await chromium.launch({headless:true});const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),dumps=[],pending=new Set();
-    page.on('response',r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const task=(async()=>{const rec={url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'))}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list','item_list HTTP '+rec.status+' · body '+(rec.bodyRead?(rec.summary?.bytes||0)+' bytes':'FALHOU')+' · itens '+(rec.summary?.itemCount??'-'))})();pending.add(task);task.finally(()=>pending.delete(task))});
-    onProgress('profile','Abrindo @'+user+' para deixar o próprio TikTok gerar item_list…');try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('profile','Navegação: '+e.message)}
-    for(let i=0;i<8;i++){await page.mouse.wheel(0,1800).catch(()=>{});await page.waitForTimeout(1300)}
-    await page.waitForTimeout(2500);
-    onProgress('wait','Aguardando '+pending.size+' leitura(s) item_list terminar antes de fechar o navegador…');
-    const deadline=Date.now()+15000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}
-    if(pending.size)onProgress('wait','Ainda existem '+pending.size+' leitura(s) pendentes após 15s; mantendo diagnóstico do que concluiu.');
-    return {kind:'tiktok-item-list-dump',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:pending.size,note:'Diagnóstico bruto da resposta /api/post/item_list/ gerada pelo próprio TikTok. O navegador aguarda as leituras de body antes de fechar. Não inventa métricas.'};
+    browser=await chromium.launch({headless:true});
+    for(const profile of profiles){
+      const context=await browser.newContext(profile.options);
+      if(profile.init)await context.addInitScript(()=>{try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{}try{Object.defineProperty(navigator,'language',{get:()=> 'pt-BR',configurable:true})}catch{}try{Object.defineProperty(navigator,'languages',{get:()=> ['pt-BR','pt'],configurable:true})}catch{}});
+      const page=await context.newPage(),pending=new Set();
+      page.on('response',r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const task=(async()=>{const rec={attempt:profile.name,url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'))}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list',profile.name+': HTTP '+rec.status+' · '+(rec.summary?.bytes||0)+' bytes · '+(rec.summary?.itemCount||0)+' itens.')})();pending.add(task);task.finally(()=>pending.delete(task))});
+      try{
+        onProgress('attempt','Tentativa '+profile.name+'…');
+        if(profile.warm){try{await page.goto('https://www.tiktok.com/?lang=pt-BR',{waitUntil:'domcontentloaded',timeout:15000});await page.waitForTimeout(1800)}catch{}}
+        try{await page.goto(profile.url,{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('navigation',profile.name+': '+e.message)}
+        for(let i=0;i<6;i++){await page.mouse.wheel(0,1700).catch(()=>{});await page.waitForTimeout(900)}
+        await page.waitForTimeout(2200);
+        const deadline=Date.now()+12000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(200)])}
+      }finally{await context.close().catch(()=>{})}
+      if(dumps.some(x=>x.attempt===profile.name&&x.summary?.itemCount>0)){onProgress('success',profile.name+' encontrou vídeos reais. Encerrando bateria.');break}
+    }
+    return {kind:'tiktok-item-list-battery',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:0,note:'Bateria automática: padrão, Windows/BR e Windows/BR com navegação aquecida. Cada tentativa observa apenas item_list gerada pelo próprio TikTok.'};
   }finally{await browser?.close().catch(()=>{})}
 }
 function sourceSnapshot(label,x){
