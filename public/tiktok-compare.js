@@ -1,6 +1,7 @@
 const $=s=>document.querySelector(s);
 const SAVED_LINKS_KEY='visual:tiktok-compare-links:v1';
-function loadSavedLinks(){try{const v=JSON.parse(localStorage.getItem(SAVED_LINKS_KEY)||'{}');if(v.a)$('#a').value=v.a;if(v.b)$('#b').value=v.b}catch{}}
+const DEFAULT_LINKS={a:'https://vt.tiktok.com/ZSb6VQYVo/',b:'https://vt.tiktok.com/ZSb6VaLoG/'};
+function loadSavedLinks(){try{const v=JSON.parse(localStorage.getItem(SAVED_LINKS_KEY)||'{}');$('#a').value=v.a||DEFAULT_LINKS.a;$('#b').value=v.b||DEFAULT_LINKS.b;saveLinks()}catch{$('#a').value=DEFAULT_LINKS.a;$('#b').value=DEFAULT_LINKS.b;saveLinks()}}
 function saveLinks(){localStorage.setItem(SAVED_LINKS_KEY,JSON.stringify({a:$('#a').value.trim(),b:$('#b').value.trim()}))}
 loadSavedLinks();
 $('#a').addEventListener('input',saveLinks);
