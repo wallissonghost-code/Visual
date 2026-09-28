@@ -315,8 +315,7 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
   }finally{await context.close().catch(()=>{})}
 }
 
-async function runWarmNavigationExperiment(browser,user,urlA,urlB,onProgress=()=>{}){
-  const targetB=videoIdentity(urlB).id;
+async function runWarmNavigationExperiment(browser,user,urlA,urlB,targetA,targetB,onProgress=()=>{}){
   async function measure(page,label){
     let html='';try{html=await page.content()}catch{}
     const data=parseUniversalObject(html);
@@ -368,7 +367,7 @@ export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
     const divergence=firstDivergence(a,b);onProgress('diff','Primeira divergência medida: '+divergence.stage+'.');
     const user=rawB.username||rawA.username||null;
     let warmNavigation={kind:'tiktok-warm-navigation',result:'NOT_RUN',error:null};
-    if(user){try{warmNavigation=await runWarmNavigationExperiment(browser,user,urlA,urlB,onProgress)}catch(e){warmNavigation={kind:'tiktok-warm-navigation',result:'ERROR',error:String(e.message||e)}}}
+    if(user){try{warmNavigation=await runWarmNavigationExperiment(browser,user,urlA,urlB,a.id,b.id,onProgress)}catch(e){warmNavigation={kind:'tiktok-warm-navigation',result:'ERROR',error:String(e.message||e)}}}
     let nativePostItemList={username:user||null,generated:false,captures:[],pendingAtReturn:0,error:null};
     if(user){try{nativePostItemList=await traceNativePostItemList(browser,user,[a.id,b.id].filter(Boolean),onProgress)}catch(e){nativePostItemList.error=String(e.message||e)}}
     onProgress('profile-item-list','Fluxo nativo: '+nativePostItemList.captures.length+' resposta(s) /api/post/item_list/ observada(s).');
