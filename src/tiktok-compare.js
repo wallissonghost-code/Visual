@@ -61,7 +61,7 @@ async function inspectOne(browser,input){
     await page.waitForTimeout(3500);
     const html=await page.content();const base=inspectHtml(html,page.url(),res?.status()||null),targetId=base.id;
     const networkEvidence=responseEvidence.map(x=>{const parsed=parseJsonEvidence(x.body,targetId);return {status:x.status,path:x.path,bytes:x.bytes,containsTarget:targetId?x.body.includes(targetId):false,jsonParsed:parsed.parsed,topKeys:parsed.topKeys,matches:parsed.matches}}).filter(x=>x.containsTarget||x.matches.length);
-    return {...base,input:cleanUrl(input),requests:requests.slice(0,120),networkEvidence};
+    return {...base,input:cleanUrl(input),requests:requests.slice(0,120),networkEvidence,rawHtml:html};
   } finally {await context.close()}
 }
 function diff(a,b){
@@ -93,6 +93,37 @@ function collectProfileVideos(html,username){
   const text=String(html||''),ids=new Set(),links=new Set(),re=/\/@([A-Za-z0-9._-]+)\/video\/(\d{8,})/g;let m;
   while((m=re.exec(text))){if(!username||m[1].toLowerCase()===username.toLowerCase()){ids.add(m[2]);links.add('https://www.tiktok.com/@'+m[1]+'/video/'+m[2])}}
   return {ids:[...ids],links:[...links]};
+}
+
+function parseUniversalObject(html){
+  const m=String(html||'').match(/<script[^>]+id=["']__UNIVERSAL_DATA_FOR_REHYDRATION__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if(!m)return null;try{return JSON.parse(m[1])}catch{return null}
+}
+function findItemStruct(value,targetId,depth=0){
+  if(!value||typeof value!=='object'||depth>14)return null;
+  if(value.itemStruct&&typeof value.itemStruct==='object'&&(!targetId||String(value.itemStruct.id||'')===String(targetId)))return value.itemStruct;
+  if(String(value.id||'')===String(targetId)&&(value.stats||value.statsV2||value.video||value.author))return value;
+  for(const v of Object.values(value)){const hit=findItemStruct(v,targetId,depth+1);if(hit)return hit}return null;
+}
+function parserContract(item){
+  if(!item||typeof item!=='object')return {accepted:false,reason:'sem itemStruct'};
+  const stats=item.statsV2||item.stats||{};
+  const fields={id:item.id??null,description:item.desc??item.description??null,createdAt:item.createTime??null,duration:item.video?.duration??item.video?.durationSeconds??null,views:stats.playCount??stats.viewCount??null,likes:stats.diggCount??stats.likeCount??null,comments:stats.commentCount??null,shares:stats.shareCount??null,saves:stats.collectCount??stats.saveCount??null};
+  const required=['id','views','likes','comments','shares'],missing=required.filter(k=>fields[k]==null);
+  return {accepted:missing.length===0,missing,fields};
+}
+function minimalClone(item){
+  const stats=item?.statsV2||item?.stats||{};
+  return {id:item?.id,desc:item?.desc??item?.description??'',createTime:item?.createTime??null,author:item?.author??{},video:item?.video??{},stats:{playCount:stats.playCount??stats.viewCount??null,diggCount:stats.diggCount??stats.likeCount??null,commentCount:stats.commentCount??null,shareCount:stats.shareCount??null,collectCount:stats.collectCount??stats.saveCount??null}};
+}
+function reconstructionLab(aDirect,bDirect){
+  const aData=parseUniversalObject(aDirect.rawHtml),bData=parseUniversalObject(bDirect.rawHtml);
+  const aItem=findItemStruct(aData,aDirect.id),bItem=findItemStruct(bData,bDirect.id);
+  const aOriginal=parserContract(aItem),aMinimalItem=aItem?minimalClone(aItem):null,aMinimal=parserContract(aMinimalItem);
+  const syntheticB=aMinimalItem?JSON.parse(JSON.stringify(aMinimalItem)):null;
+  if(syntheticB)syntheticB.id=bDirect.id;
+  const bSynthetic=parserContract(syntheticB);
+  return {controlA:{itemStructFound:!!aItem,original:aOriginal,minimal:aMinimal,minimalItem:aMinimalItem},targetB:{itemStructFound:!!bItem,original:parserContract(bItem),syntheticFromA:bSynthetic,syntheticNotice:'Estrutura sintética apenas para validar o parser. Métricas permanecem as do molde A e NÃO representam o vídeo B.'},conclusion:aMinimal.accepted&&bSynthetic.accepted?'PARSER_ACEITA_MOLDE_RECONSTRUIDO':'MOLDE_NAO_VALIDADO'};
 }
 function extractFieldsFromParent(raw){
   try{
@@ -130,7 +161,7 @@ export async function runTikTokHypotheses(username,urlA,urlB,onProgress=()=>{}){
     browser=await chromium.launch({headless:true});onProgress('resolve','Resolvendo os dois links e identificando os Video IDs…');
     const a=await resolveTarget(browser,urlA),b=await resolveTarget(browser,urlB),ids=[a.id,b.id].filter(Boolean);
     onProgress('internal','HIPÓTESE CHAT: entrando pelo perfil e observando item_list/navegação interna…');
-    const profile=await captureProfileSession(browser,user,ids,onProgress);
+    const profile=await captureProfileSession(browser,user,ids,onProgress);onProgress('lab','HIPÓTESE USUÁRIO: desmontando A, criando molde mínimo e validando reconstrução do B…');const lab=reconstructionLab(a.direct,b.direct);
     const result={};
     for(const [label,x] of [['A',a],['B',b]]){
       const profileEvidence=profile.hits[x.id]||[];
@@ -138,7 +169,7 @@ export async function runTikTokHypotheses(username,urlA,urlB,onProgress=()=>{}){
       result[label]={id:x.id,input:x.raw,directMarkers:x.direct.markers,profileEvidence,recovery:recoveryFromEvidence(x.id,all)};
       onProgress('target',label+' '+x.id+': '+profileEvidence.length+' resposta(s) do perfil com o ID; recuperação '+result[label].recovery.status+'.');
     }
-    return {kind:'tiktok-two-hypotheses',createdAt:new Date().toISOString(),username:user,hypothesisChat:{name:'Navegação interna TikTok',description:'Perfil → item_list → procurar A/B no tráfego do próprio TikTok.',targets:{A:{id:a.id,evidence:result.A.profileEvidence},B:{id:b.id,evidence:result.B.profileEvidence}}},hypothesisUser:{name:'Reconstruir dados reais',description:'Combina somente campos reais encontrados nas respostas observadas; nenhum valor é inventado.',targets:{A:result.A.recovery,B:result.B.recovery}},observedRequests:profile.requests,note:'Resultado experimental. RECUPERADO significa que os cinco contadores foram localizados em evidência pública observada.'};
+    return {kind:'tiktok-two-hypotheses',createdAt:new Date().toISOString(),username:user,reconstructionLab:lab,hypothesisChat:{name:'Navegação interna TikTok',description:'Perfil → item_list → procurar A/B no tráfego do próprio TikTok.',targets:{A:{id:a.id,evidence:result.A.profileEvidence},B:{id:b.id,evidence:result.B.profileEvidence}}},hypothesisUser:{name:'Reconstruir dados reais',description:'Combina somente campos reais encontrados nas respostas observadas; nenhum valor é inventado.',targets:{A:result.A.recovery,B:result.B.recovery}},observedRequests:profile.requests,note:'Resultado experimental. O laboratório sintético valida somente a compatibilidade estrutural do parser; nunca trata métricas copiadas de A como dados reais de B.'};
   }finally{await browser?.close().catch(()=>{})}
 }
 
