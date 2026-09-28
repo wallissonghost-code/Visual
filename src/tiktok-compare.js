@@ -211,6 +211,17 @@ function summarizeProfileDocument(html,env={}) {
     environment:env
   };
 }
+
+function videoDetailShape(html,targetId){
+  const data=parseUniversalObject(html),scope=data?.__DEFAULT_SCOPE__||{},vd=scope['webapp.video-detail'];
+  const shape=v=>v&&typeof v==='object'?Object.fromEntries(Object.entries(v).slice(0,80).map(([k,x])=>[k,Array.isArray(x)?'array('+x.length+')':x===null?'null':typeof x==='object'?'object':typeof x])):{};
+  const itemInfo=vd?.itemInfo;
+  return {targetId,defaultScopeKeys:Object.keys(scope),videoDetailType:vd===null?'null':typeof vd,videoDetailKeys:Object.keys(vd||{}),videoDetailShape:shape(vd),itemInfoType:itemInfo===null?'null':typeof itemInfo,itemInfoKeys:Object.keys(itemInfo||{}),itemInfoShape:shape(itemInfo),itemStructPresent:!!itemInfo?.itemStruct,statusCode:vd?.statusCode??vd?.status_code??null,statusMsg:vd?.statusMsg??vd?.status_msg??null,shareMetaKeys:Object.keys(vd?.shareMeta||{}),seoPropsKeys:Object.keys(vd?.seoProps||{})};
+}
+export async function compareTikTokVideoDetailShapes(urlA,urlB){
+  let browser;try{browser=await chromium.launch({headless:true});const a=await inspectOne(browser,urlA),b=await inspectOne(browser,urlB);const A=videoDetailShape(a.rawHtml,a.id),B=videoDetailShape(b.rawHtml,b.id);const onlyA=A.videoDetailKeys.filter(k=>!B.videoDetailKeys.includes(k)),onlyB=B.videoDetailKeys.filter(k=>!A.videoDetailKeys.includes(k));const itemOnlyA=A.itemInfoKeys.filter(k=>!B.itemInfoKeys.includes(k)),itemOnlyB=B.itemInfoKeys.filter(k=>!A.itemInfoKeys.includes(k));return{kind:'tiktok-video-detail-shape-diff',createdAt:new Date().toISOString(),A:{id:a.id,httpStatus:a.status,htmlBytes:a.htmlBytes,...A},B:{id:b.id,httpStatus:b.status,htmlBytes:b.htmlBytes,...B},diff:{videoDetailOnlyA:onlyA,videoDetailOnlyB:onlyB,itemInfoOnlyA:itemOnlyA,itemInfoOnlyB:itemOnlyB}}}finally{await browser?.close().catch(()=>{})}
+}
+
 export async function inspectTikTokVideoBatch(urls,onProgress=()=>{}){
   const list=[...new Set((urls||[]).map(String).map(x=>x.trim()).filter(Boolean))];
   if(!list.length)throw new Error('Nenhum link informado.');
