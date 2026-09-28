@@ -37,7 +37,7 @@ function fmtHypotheses(d){
  const hc=d.hypothesisChat,hu=d.hypothesisUser;
  o.push('HIPÓTESE CHAT · '+hc.name);
  for(const k of ['A','B']){const t=hc.targets[k];o.push(k+' · '+t.id+' · respostas do perfil contendo ID: '+(t.evidence?.length||0));for(const e of t.evidence||[])o.push('  ↳ HTTP '+e.status+' '+e.url)}
- o.push('');o.push('HIPÓTESE USUÁRIO · '+hu.name);
+ o.push('');o.push('LABORATÓRIO DE RECONSTRUÇÃO A → B');const lab=d.reconstructionLab;if(lab){o.push('A itemStruct encontrado: '+yn(lab.controlA.itemStructFound));o.push('A original aceito: '+yn(lab.controlA.original.accepted));o.push('A mínimo reconstruído aceito: '+yn(lab.controlA.minimal.accepted));o.push('B itemStruct original encontrado: '+yn(lab.targetB.itemStructFound));o.push('B com molde estrutural de A aceito pelo parser: '+yn(lab.targetB.syntheticFromA.accepted));o.push('Conclusão: '+lab.conclusion);o.push('AVISO: teste sintético não atribui métricas de A ao B.');}o.push('');o.push('HIPÓTESE USUÁRIO · '+hu.name);
  for(const k of ['A','B']){const t=hu.targets[k];o.push(k+' · '+t.id+' · '+t.status);for(const [field,hit] of Object.entries(t.recovered||{}))o.push('  '+field+': '+(hit?hit.value+' ← '+hit.source:'não encontrado'))}
  o.push('');o.push('Nota: '+d.note);return o.join('\n')
 }
