@@ -1,9 +1,12 @@
 const $=s=>document.querySelector(s);
 const SAVED_LINKS_KEY='visual:tiktok-compare-links:v1';
+const SAVED_USER_KEY='visual:tiktok-compare-user:v1';
 const DEFAULT_LINKS={a:'https://vt.tiktok.com/ZSb6VQYVo/',b:'https://vt.tiktok.com/ZSb6VaLoG/'};
 function loadSavedLinks(){try{const v=JSON.parse(localStorage.getItem(SAVED_LINKS_KEY)||'{}');$('#a').value=v.a||DEFAULT_LINKS.a;$('#b').value=v.b||DEFAULT_LINKS.b;saveLinks()}catch{$('#a').value=DEFAULT_LINKS.a;$('#b').value=DEFAULT_LINKS.b;saveLinks()}}
 function saveLinks(){localStorage.setItem(SAVED_LINKS_KEY,JSON.stringify({a:$('#a').value.trim(),b:$('#b').value.trim()}))}
 loadSavedLinks();
+$('#username').value=localStorage.getItem(SAVED_USER_KEY)||'@oopedrogames';
+$('#username').addEventListener('input',()=>localStorage.setItem(SAVED_USER_KEY,$('#username').value.trim()));
 $('#a').addEventListener('input',saveLinks);
 $('#b').addEventListener('input',saveLinks);
 let lastResult=null;
@@ -20,3 +23,6 @@ function fmt(d){
  o.push('Nota: '+d.note);return o.join('\n')
 }
 $('#run').onclick=async()=>{const a=$('#a').value.trim(),b=$('#b').value.trim();if(!a||!b)return alert('Cole os dois links do TikTok.');$('#run').disabled=true;$('#status').classList.remove('hidden');$('#result').classList.add('hidden');try{const r=await fetch('/api/tiktok/compare',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({a,b})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha');lastResult=d;$('#report').textContent=fmt(d);$('#badge').textContent='CONCLUÍDO';$('#result').classList.remove('hidden')}catch(e){$('#report').textContent='Falha: '+e.message;$('#badge').textContent='FALHOU';$('#result').classList.remove('hidden')}finally{$('#run').disabled=false;$('#status').classList.add('hidden')}};
+
+function fmtProfile(d){const o=[];o.push('BUSCA PELO PERFIL');o.push('Perfil: @'+d.username);o.push('HTTP: '+(d.status??'-')+' | HTML: '+d.htmlBytes+' bytes');o.push('Vídeos públicos encontrados: '+d.discoveredVideoIds.length);for(const link of d.discoveredVideoLinks)o.push('  ↳ '+link);o.push('');o.push('2 LINKS INFORMADOS');for(const p of d.probes)o.push((p.foundInProfile?'ENCONTRADO':'NÃO ENCONTRADO')+' | '+(p.id||'-')+' | '+p.input);o.push('');o.push('Requisições públicas observadas: '+d.observedRequests.length);for(const r of d.observedRequests)o.push(r.status+' '+r.resourceType+' '+r.url);o.push('');o.push('Nota: '+d.note);return o.join('\n')}
+$('#profileRun').onclick=async()=>{const username=$('#username').value.trim(),a=$('#a').value.trim(),b=$('#b').value.trim();if(!username)return alert('Informe o @user.');saveLinks();$('#profileRun').disabled=true;$('#status').classList.remove('hidden');$('#result').classList.add('hidden');try{const r=await fetch('/api/tiktok/profile-route',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({username,a,b})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha');lastResult=d;$('#report').textContent=fmtProfile(d);$('#badge').textContent='CONCLUÍDO';$('#result').classList.remove('hidden')}catch(e){$('#report').textContent='Falha: '+e.message;$('#badge').textContent='FALHOU';$('#result').classList.remove('hidden')}finally{$('#profileRun').disabled=false;$('#status').classList.add('hidden')}};
