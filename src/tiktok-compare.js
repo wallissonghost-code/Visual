@@ -192,14 +192,17 @@ function summarizeItemListBody(body){
 export async function dumpTikTokItemList(username,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');let browser;
   try{
-    browser=await chromium.launch({headless:true});const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),dumps=[];
-    page.on('response',async r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const rec={url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished().catch(()=>{});const body=await r.text();rec.bodyRead=true;rec.summary=summarizeItemListBody(body)}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list','item_list HTTP '+rec.status+' · body '+(rec.bodyRead?(rec.summary?.bytes||0)+' bytes':'FALHOU')+' · itens '+(rec.summary?.itemCount??'-'))});
+    browser=await chromium.launch({headless:true});const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),dumps=[],pending=new Set();
+    page.on('response',r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const task=(async()=>{const rec={url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'))}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list','item_list HTTP '+rec.status+' · body '+(rec.bodyRead?(rec.summary?.bytes||0)+' bytes':'FALHOU')+' · itens '+(rec.summary?.itemCount??'-'))})();pending.add(task);task.finally(()=>pending.delete(task))});
     onProgress('profile','Abrindo @'+user+' para deixar o próprio TikTok gerar item_list…');try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000})}catch(e){onProgress('profile','Navegação: '+e.message)}
     for(let i=0;i<8;i++){await page.mouse.wheel(0,1800).catch(()=>{});await page.waitForTimeout(1300)}
-    await page.waitForTimeout(2000);return {kind:'tiktok-item-list-dump',createdAt:new Date().toISOString(),username:user,dumps,note:'Diagnóstico bruto da resposta /api/post/item_list/ gerada pelo próprio TikTok. Não inventa métricas.'};
+    await page.waitForTimeout(2500);
+    onProgress('wait','Aguardando '+pending.size+' leitura(s) item_list terminar antes de fechar o navegador…');
+    const deadline=Date.now()+15000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}
+    if(pending.size)onProgress('wait','Ainda existem '+pending.size+' leitura(s) pendentes após 15s; mantendo diagnóstico do que concluiu.');
+    return {kind:'tiktok-item-list-dump',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:pending.size,note:'Diagnóstico bruto da resposta /api/post/item_list/ gerada pelo próprio TikTok. O navegador aguarda as leituras de body antes de fechar. Não inventa métricas.'};
   }finally{await browser?.close().catch(()=>{})}
 }
-
 export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');onProgress('start','Iniciando busca por @'+user+'…');
   let browser;
