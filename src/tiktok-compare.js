@@ -203,6 +203,36 @@ export async function dumpTikTokItemList(username,onProgress=()=>{}){
     return {kind:'tiktok-item-list-dump',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:pending.size,note:'Diagnóstico bruto da resposta /api/post/item_list/ gerada pelo próprio TikTok. O navegador aguarda as leituras de body antes de fechar. Não inventa métricas.'};
   }finally{await browser?.close().catch(()=>{})}
 }
+function sourceSnapshot(label,x){
+  const data=parseUniversalObject(x.rawHtml),item=findItemStruct(data,x.id),parsed=parserContract(item);
+  return {label,id:x.id,finalUrl:x.finalUrl,http:x.status,htmlBytes:x.htmlBytes,idOccurrences:x.idOccurrences,
+    sources:{html:{universalFound:!!data,itemStructFound:!!item,parserAccepted:!!parsed.accepted,metrics:parsed.fields||null,markers:x.markers},
+      network:{responsesWithTarget:x.networkEvidence?.length||0,evidence:(x.networkEvidence||[]).map(e=>({status:e.status,path:e.path,bytes:e.bytes,jsonParsed:e.jsonParsed,topKeys:e.topKeys,matchPaths:(e.matches||[]).map(m=>m.path)}))}},
+    requests:(x.requests||[]).map(r=>({status:r.status,resourceType:r.resourceType,path:r.path})).slice(0,120)};
+}
+function firstDivergence(a,b){
+  const checks=[
+    ['HTTP_DOCUMENTO',a.http===b.http,{a:a.http,b:b.http}],
+    ['UNIVERSAL_DATA',a.sources.html.universalFound===b.sources.html.universalFound,{a:a.sources.html.universalFound,b:b.sources.html.universalFound}],
+    ['ITEM_STRUCT',a.sources.html.itemStructFound===b.sources.html.itemStructFound,{a:a.sources.html.itemStructFound,b:b.sources.html.itemStructFound}],
+    ['PARSER_METRICAS',a.sources.html.parserAccepted===b.sources.html.parserAccepted,{a:a.sources.html.parserAccepted,b:b.sources.html.parserAccepted}],
+    ['REDE_COM_VIDEO_ID',a.sources.network.responsesWithTarget===b.sources.network.responsesWithTarget,{a:a.sources.network.responsesWithTarget,b:b.sources.network.responsesWithTarget}]
+  ];
+  const hit=checks.find(x=>!x[1]);return hit?{stage:hit[0],...hit[2]}:{stage:'SEM_DIVERGENCIA_NOS_ESTAGIOS_MEDIDOS'};
+}
+export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
+  if(!isTikTok(urlA)||!isTikTok(urlB))throw new Error('Informe dois links públicos do TikTok.');let browser;
+  try{
+    browser=await chromium.launch({headless:true});
+    onProgress('A','Abrindo A e rastreando a origem das métricas reais…');const rawA=await inspectOne(browser,urlA),a=sourceSnapshot('A',rawA);
+    onProgress('A','A: itemStruct '+(a.sources.html.itemStructFound?'SIM':'não')+' · parser '+(a.sources.html.parserAccepted?'ACEITOU':'não aceitou')+' · rede com ID '+a.sources.network.responsesWithTarget+'.');
+    onProgress('B','Abrindo B no mesmo navegador e repetindo exatamente a coleta…');const rawB=await inspectOne(browser,urlB),b=sourceSnapshot('B',rawB);
+    onProgress('B','B: itemStruct '+(b.sources.html.itemStructFound?'SIM':'não')+' · parser '+(b.sources.html.parserAccepted?'ACEITOU':'não aceitou')+' · rede com ID '+b.sources.network.responsesWithTarget+'.');
+    const divergence=firstDivergence(a,b);onProgress('diff','Primeira divergência medida: '+divergence.stage+'.');
+    return {kind:'tiktok-ab-trace',createdAt:new Date().toISOString(),a,b,firstDivergence:divergence,note:'Rastreamento observacional A→B. Usa somente dados públicos realmente recebidos; não reconstrói nem inventa métricas do B.'};
+  }finally{await browser?.close().catch(()=>{})}
+}
+
 export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');onProgress('start','Iniciando busca por @'+user+'…');
   let browser;
