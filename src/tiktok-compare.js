@@ -233,13 +233,14 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
     try{Object.defineProperty(navigator,'language',{get:()=> 'pt-BR',configurable:true})}catch{}
     try{Object.defineProperty(navigator,'languages',{get:()=> ['pt-BR','pt'],configurable:true})}catch{}
   });
-  const page=await context.newPage(),captures=[],pending=new Set();
+  const page=await context.newPage(),captures=[],pending=new Set(),regionProbeUrls=new Set();
   const summarizeRequest=(raw)=>{
     try{const u=new URL(raw),q=u.searchParams;return {path:u.pathname,method:'GET',query:{user_is_login:q.get('user_is_login'),secUidPresent:q.has('secUid'),deviceIdPresent:q.has('device_id'),odinIdPresent:q.has('odinId'),verifyFpPresent:q.has('verifyFp'),msTokenPresent:q.has('msToken'),xBogusPresent:q.has('X-Bogus'),xGnarlyPresent:q.has('X-Gnarly'),xDynosaurPresent:q.has('X-Dynosaur'),count:q.get('count'),cursor:q.get('cursor'),region:q.get('region'),priorityRegion:q.get('priority_region'),language:q.get('language'),appLanguage:q.get('app_language'),timezone:q.get('tz_name'),browserPlatform:q.get('browser_platform'),os:q.get('os'),screenWidth:q.get('screen_width'),screenHeight:q.get('screen_height'),rootReferer:q.get('root_referer')}}}catch{return {path:String(raw||'').slice(0,240),method:'GET',query:{}}}
   };
   page.on('response',r=>{
     let u;try{u=new URL(r.url())}catch{return}
     if(u.hostname!=='www.tiktok.com'||u.pathname!=='/api/post/item_list/')return;
+    if(regionProbeUrls.has(r.url()))return;
     const task=(async()=>{
       const reqSummary=summarizeRequest(r.url());
       const reqHeaders=r.request().headers();
@@ -247,11 +248,11 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
       try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'));for(const id of targetIds)rec.targets[id]={present:rec.summary.ids.includes(String(id)),item:rec.summary.items.find(x=>x.id===String(id))||null}}catch(e){rec.bodyError=String(e.message||e)}
       // Controle permanece intacto. Depois dele, repetimos uma única vez a mesma
       // requisição alterando somente region=BR para medir se esse atalho muda a resposta.
-      if(!u.searchParams.has('__visual_region_probe')){
+      if(u.searchParams.get('region')!=='BR'){
         try{
           const probeUrl=new URL(r.url());
           probeUrl.searchParams.set('region','BR');
-          probeUrl.searchParams.set('__visual_region_probe','1');
+          regionProbeUrls.add(probeUrl.toString());
           const probe=await page.evaluate(async url=>{
             try{
               const res=await fetch(url,{method:'GET',credentials:'include'});
@@ -259,7 +260,7 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
               return {status:res.status,contentType:res.headers.get('content-type')||'',body:text};
             }catch(e){return {error:String(e?.message||e)}}
           },probeUrl.toString());
-          rec.regionBrProbe={attempted:true,changedOnly:'region US→BR (+ internal probe marker)',signatureReused:true,status:probe.status??null,contentType:probe.contentType||'',summary:probe.body!==undefined?summarizeItemListBody(probe.body):null,error:probe.error||null};
+          rec.regionBrProbe={attempted:true,changedOnly:'region US→BR',signatureReused:true,status:probe.status??null,contentType:probe.contentType||'',summary:probe.body!==undefined?summarizeItemListBody(probe.body):null,error:probe.error||null};
           onProgress('profile-region-br','Teste BR adulterado: HTTP '+(rec.regionBrProbe.status??'erro')+' · '+(rec.regionBrProbe.summary?.bytes??0)+' bytes · '+(rec.regionBrProbe.summary?.itemCount??0)+' itens.');
         }catch(e){rec.regionBrProbe={attempted:true,error:String(e.message||e)}}
       }
