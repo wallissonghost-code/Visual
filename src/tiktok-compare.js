@@ -211,6 +211,20 @@ function summarizeProfileDocument(html,env={}) {
     environment:env
   };
 }
+export async function inspectTikTokVideoBatch(urls,onProgress=()=>{}){
+  const list=[...new Set((urls||[]).map(String).map(x=>x.trim()).filter(Boolean))];
+  if(!list.length)throw new Error('Nenhum link informado.');
+  if(list.some(x=>!isTikTok(x)))throw new Error('A bateria aceita somente links públicos do TikTok.');
+  let browser;try{
+    browser=await chromium.launch({headless:true});
+    const results=new Array(list.length);let next=0;
+    async function worker(){while(true){const i=next++;if(i>=list.length)return;const input=list[i];onProgress('video','Testando '+(i+1)+'/'+list.length+'…');try{const x=await inspectOne(browser,input);const data=parseUniversalObject(x.rawHtml),item=findItemStruct(data,x.id),parsed=parserContract(item);const videoDetail=!!data?.__DEFAULT_SCOPE__?.['webapp.video-detail'];let classification='VAZIO';if(item&&parsed.accepted)classification='COMPLETO';else if(videoDetail||x.markers?.['video-detail']||data)classification='PARCIAL';results[i]={index:i+1,input,id:x.id,finalUrl:x.finalUrl,httpStatus:x.status,htmlBytes:x.htmlBytes,universalFound:!!data,videoDetailPresent:videoDetail,itemStructPresent:!!item,parserAccepted:!!parsed.accepted,classification,metrics:parsed.accepted?parsed.fields:null,networkResponsesWithTarget:x.networkEvidence?.length||0};}catch(e){results[i]={index:i+1,input,classification:'ERRO',error:String(e.message||e)}}}}
+    await Promise.all([worker(),worker(),worker()]);
+    const counts=results.reduce((a,x)=>(a[x.classification]=(a[x.classification]||0)+1,a),{});
+    return {kind:'tiktok-13-video-battery',createdAt:new Date().toISOString(),count:list.length,counts,results,note:'Cada link é aberto em contexto novo no mesmo Chromium do Visual; classificação baseada somente no conteúdo público realmente recebido.'};
+  }finally{await browser?.close().catch(()=>{})}
+}
+
 export async function dumpTikTokItemList(username,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
   const profiles=[
