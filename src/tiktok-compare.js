@@ -220,6 +220,12 @@ function firstDivergence(a,b){
   ];
   const hit=checks.find(x=>!x[1]);return hit?{stage:hit[0],...hit[2]}:{stage:'SEM_DIVERGENCIA_NOS_ESTAGIOS_MEDIDOS'};
 }
+const PC_LOGGED_OUT_BASELINE={user_is_login:'false',count:'16',cursor:'0',region:'BR',priorityRegion:'',language:'pt-BR',appLanguage:'pt-BR',timezone:'America/Sao_Paulo',browserPlatform:'Win32',os:'windows',screenWidth:'1600',screenHeight:'900',verifyFpPresent:false,msTokenPresent:true,xBogusPresent:true,xGnarlyPresent:true,xDynosaurPresent:true};
+function compareWithPcBaseline(query){
+  const fields=Object.keys(PC_LOGGED_OUT_BASELINE);
+  const differences=fields.filter(k=>String(query?.[k])!==String(PC_LOGGED_OUT_BASELINE[k])).map(k=>({field:k,pc:PC_LOGGED_OUT_BASELINE[k],render:query?.[k]??null}));
+  return {source:'previously captured successful logged-out Windows request; secret values excluded',matches:fields.length-differences.length,total:fields.length,differences};
+}
 async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{}){
   const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1600,height:900},screen:{width:1600,height:900},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'}),page=await context.newPage(),captures=[],pending=new Set();
   const summarizeRequest=(raw)=>{
@@ -229,9 +235,11 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
     let u;try{u=new URL(r.url())}catch{return}
     if(u.hostname!=='www.tiktok.com'||u.pathname!=='/api/post/item_list/')return;
     const task=(async()=>{
-      const rec={...summarizeRequest(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null,targets:{}};
+      const reqSummary=summarizeRequest(r.url());
+      const reqHeaders=r.request().headers();
+      const rec={...reqSummary,pcBaselineComparison:compareWithPcBaseline(reqSummary.query),requestContext:{referer:reqHeaders.referer||null,cookiePresent:Boolean(reqHeaders.cookie),origin:reqHeaders.origin||null},status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null,targets:{}};
       try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'));for(const id of targetIds)rec.targets[id]={present:rec.summary.ids.includes(String(id)),item:rec.summary.items.find(x=>x.id===String(id))||null}}catch(e){rec.bodyError=String(e.message||e)}
-      captures.push(rec);onProgress('profile-item-list','/api/post/item_list/ HTTP '+rec.status+' · '+(rec.summary?.bytes??0)+' bytes · '+(rec.summary?.itemCount??0)+' itens.');
+      captures.push(rec);onProgress('profile-item-list','/api/post/item_list/ HTTP '+rec.status+' · '+(rec.summary?.bytes??0)+' bytes · '+(rec.summary?.itemCount??0)+' itens · '+rec.pcBaselineComparison.differences.length+' diferença(s) públicas vs PC.');
     })();pending.add(task);task.finally(()=>pending.delete(task));
   });
   try{
