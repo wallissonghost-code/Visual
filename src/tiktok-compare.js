@@ -221,9 +221,9 @@ function firstDivergence(a,b){
   const hit=checks.find(x=>!x[1]);return hit?{stage:hit[0],...hit[2]}:{stage:'SEM_DIVERGENCIA_NOS_ESTAGIOS_MEDIDOS'};
 }
 async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{}){
-  const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),captures=[],pending=new Set();
+  const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1600,height:900},screen:{width:1600,height:900},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'}),page=await context.newPage(),captures=[],pending=new Set();
   const summarizeRequest=(raw)=>{
-    try{const u=new URL(raw),q=u.searchParams;return {path:u.pathname,method:'GET',query:{user_is_login:q.get('user_is_login'),secUidPresent:q.has('secUid'),deviceIdPresent:q.has('device_id'),odinIdPresent:q.has('odinId'),verifyFpPresent:q.has('verifyFp'),msTokenPresent:q.has('msToken'),xBogusPresent:q.has('X-Bogus'),xGnarlyPresent:q.has('X-Gnarly'),xDynosaurPresent:q.has('X-Dynosaur'),count:q.get('count'),cursor:q.get('cursor'),region:q.get('region'),browserPlatform:q.get('browser_platform')}}}catch{return {path:String(raw||'').slice(0,240),method:'GET',query:{}}}
+    try{const u=new URL(raw),q=u.searchParams;return {path:u.pathname,method:'GET',query:{user_is_login:q.get('user_is_login'),secUidPresent:q.has('secUid'),deviceIdPresent:q.has('device_id'),odinIdPresent:q.has('odinId'),verifyFpPresent:q.has('verifyFp'),msTokenPresent:q.has('msToken'),xBogusPresent:q.has('X-Bogus'),xGnarlyPresent:q.has('X-Gnarly'),xDynosaurPresent:q.has('X-Dynosaur'),count:q.get('count'),cursor:q.get('cursor'),region:q.get('region'),priorityRegion:q.get('priority_region'),language:q.get('language'),appLanguage:q.get('app_language'),timezone:q.get('tz_name'),browserPlatform:q.get('browser_platform'),os:q.get('os'),screenWidth:q.get('screen_width'),screenHeight:q.get('screen_height'),rootReferer:q.get('root_referer')}}}catch{return {path:String(raw||'').slice(0,240),method:'GET',query:{}}}
   };
   page.on('response',r=>{
     let u;try{u=new URL(r.url())}catch{return}
@@ -240,7 +240,7 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
     for(let i=0;i<8;i++){await page.mouse.wheel(0,1800).catch(()=>{});await page.waitForTimeout(1300)}
     await page.waitForTimeout(2500);
     const deadline=Date.now()+15000;while(pending.size&&Date.now()<deadline){await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}
-    return {username:user,generated:captures.length>0,captures,pendingAtReturn:pending.size};
+    return {username:user,emulatedContext:{ua:'Windows Chrome 153',locale:'pt-BR',timezone:'America/Sao_Paulo',viewport:'1600x900'},generated:captures.length>0,captures,pendingAtReturn:pending.size};
   }finally{await context.close().catch(()=>{})}
 }
 export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
