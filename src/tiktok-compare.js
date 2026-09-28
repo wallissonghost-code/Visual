@@ -94,6 +94,54 @@ function collectProfileVideos(html,username){
   while((m=re.exec(text))){if(!username||m[1].toLowerCase()===username.toLowerCase()){ids.add(m[2]);links.add('https://www.tiktok.com/@'+m[1]+'/video/'+m[2])}}
   return {ids:[...ids],links:[...links]};
 }
+function extractFieldsFromParent(raw){
+  try{
+    const o=typeof raw==='string'?JSON.parse(raw):raw;
+    const stats=o?.statsV2||o?.stats||o?.itemStruct?.statsV2||o?.itemStruct?.stats||o?.itemInfo?.itemStruct?.statsV2||o?.itemInfo?.itemStruct?.stats||{};
+    const pick=(...keys)=>{for(const k of keys)if(stats?.[k]!=null)return stats[k];return null};
+    return {views:pick('playCount','viewCount'),likes:pick('diggCount','likeCount'),comments:pick('commentCount'),shares:pick('shareCount'),saves:pick('collectCount','saveCount')};
+  }catch{return {views:null,likes:null,comments:null,shares:null,saves:null}}
+}
+function recoveryFromEvidence(id,evidence=[]){
+  const sources=[];for(const e of evidence){for(const m of e.matches||[]){const fields=extractFieldsFromParent(m.parent);sources.push({path:e.path||e.url||'',jsonPath:m.path,fields})}}
+  const recovered={};for(const k of ['views','likes','comments','shares','saves']){const hit=sources.find(s=>s.fields[k]!=null);recovered[k]=hit?{value:hit.fields[k],source:hit.path,jsonPath:hit.jsonPath}:null}
+  const count=Object.values(recovered).filter(Boolean).length;
+  return {id,status:count===5?'RECUPERADO':count?'PARCIAL':'NÃO ENCONTRADO',recovered,sourcesChecked:sources.length};
+}
+async function resolveTarget(browser,raw){
+  const x=await inspectOne(browser,raw);return {raw,id:x.id,username:x.username,finalUrl:x.finalUrl,direct:x};
+}
+async function captureProfileSession(browser,user,targetIds,onProgress){
+  const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),responses=[];
+  page.on('response',async r=>{if(!isTikTok(r.url()))return;const type=r.request().resourceType();if(!['xhr','fetch','document'].includes(type))return;try{const body=(await r.text()).slice(0,1500000);responses.push({status:r.status(),resourceType:type,url:cleanUrl(r.url()),body})}catch{}});
+  try{
+    onProgress('profile','Abrindo @'+user+' e capturando a navegação interna…');
+    try{await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:15000})}catch{}
+    for(let i=0;i<4;i++){await page.mouse.wheel(0,1600).catch(()=>{});await page.waitForTimeout(1200)}
+    const hits={};for(const id of targetIds)hits[id]=[];
+    for(const r of responses){for(const id of targetIds){if(!id||!r.body.includes(id))continue;const p=parseJsonEvidence(r.body,id);hits[id].push({status:r.status,url:r.url,resourceType:r.resourceType,topKeys:p.topKeys,matches:p.matches})}}
+    return {hits,requests:responses.map(r=>({status:r.status,resourceType:r.resourceType,url:r.url})).slice(0,180)};
+  }finally{await context.close().catch(()=>{})}
+}
+export async function runTikTokHypotheses(username,urlA,urlB,onProgress=()=>{}){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+  let browser;
+  try{
+    browser=await chromium.launch({headless:true});onProgress('resolve','Resolvendo os dois links e identificando os Video IDs…');
+    const a=await resolveTarget(browser,urlA),b=await resolveTarget(browser,urlB),ids=[a.id,b.id].filter(Boolean);
+    onProgress('internal','HIPÓTESE CHAT: entrando pelo perfil e observando item_list/navegação interna…');
+    const profile=await captureProfileSession(browser,user,ids,onProgress);
+    const result={};
+    for(const [label,x] of [['A',a],['B',b]]){
+      const profileEvidence=profile.hits[x.id]||[];
+      const all=[...(x.direct.networkEvidence||[]),...profileEvidence];
+      result[label]={id:x.id,input:x.raw,directMarkers:x.direct.markers,profileEvidence,recovery:recoveryFromEvidence(x.id,all)};
+      onProgress('target',label+' '+x.id+': '+profileEvidence.length+' resposta(s) do perfil com o ID; recuperação '+result[label].recovery.status+'.');
+    }
+    return {kind:'tiktok-two-hypotheses',createdAt:new Date().toISOString(),username:user,hypothesisChat:{name:'Navegação interna TikTok',description:'Perfil → item_list → procurar A/B no tráfego do próprio TikTok.',targets:{A:{id:a.id,evidence:result.A.profileEvidence},B:{id:b.id,evidence:result.B.profileEvidence}}},hypothesisUser:{name:'Reconstruir dados reais',description:'Combina somente campos reais encontrados nas respostas observadas; nenhum valor é inventado.',targets:{A:result.A.recovery,B:result.B.recovery}},observedRequests:profile.requests,note:'Resultado experimental. RECUPERADO significa que os cinco contadores foram localizados em evidência pública observada.'};
+  }finally{await browser?.close().catch(()=>{})}
+}
+
 export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');onProgress('start','Iniciando busca por @'+user+'…');
   let browser;
