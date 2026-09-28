@@ -233,7 +233,7 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
     try{Object.defineProperty(navigator,'language',{get:()=> 'pt-BR',configurable:true})}catch{}
     try{Object.defineProperty(navigator,'languages',{get:()=> ['pt-BR','pt'],configurable:true})}catch{}
   });
-  const page=await context.newPage(),captures=[],pending=new Set(),regionProbeUrls=new Set();
+  const page=await context.newPage(),captures=[],pending=new Set(),regionProbeUrls=new Set(),fallbackEvidence=[];
   const summarizeRequest=(raw)=>{
     try{const u=new URL(raw),q=u.searchParams;return {path:u.pathname,method:'GET',query:{user_is_login:q.get('user_is_login'),secUidPresent:q.has('secUid'),deviceIdPresent:q.has('device_id'),odinIdPresent:q.has('odinId'),verifyFpPresent:q.has('verifyFp'),msTokenPresent:q.has('msToken'),xBogusPresent:q.has('X-Bogus'),xGnarlyPresent:q.has('X-Gnarly'),xDynosaurPresent:q.has('X-Dynosaur'),count:q.get('count'),cursor:q.get('cursor'),region:q.get('region'),priorityRegion:q.get('priority_region'),language:q.get('language'),appLanguage:q.get('app_language'),timezone:q.get('tz_name'),browserPlatform:q.get('browser_platform'),os:q.get('os'),screenWidth:q.get('screen_width'),screenHeight:q.get('screen_height'),rootReferer:q.get('root_referer')}}}catch{return {path:String(raw||'').slice(0,240),method:'GET',query:{}}}
   };
@@ -276,9 +276,42 @@ async function traceNativePostItemList(browser,user,targetIds,onProgress=()=>{})
     }catch(e){navigationError=String(e.message||e);onProgress('profile','Navegação do perfil falhou: '+navigationError+' · continuando a observação da rede…')}
     onProgress('profile-passive','Modo passivo: sem clique, sem scroll e sem fechar o login wall; apenas observando a rede inicial.');
     try{await page.waitForTimeout(10000)}catch(e){interactionErrors.push('passive-wait: '+String(e.message||e))}
-    const deadline=Date.now()+15000;
+    let deadline=Date.now()+15000;
     while(pending.size&&Date.now()<deadline){try{await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}catch(e){interactionErrors.push('pending-wait: '+String(e.message||e));break}}
-    return {username:user,emulatedContext:{ua:'Windows Chrome 153',navigatorPlatform:'Win32',locale:'pt-BR',timezone:'America/Sao_Paulo',viewport:'1600x900',profileLang:'pt-BR',interaction:'passive-no-click-no-scroll'},navigationError,interactionErrors:[...new Set(interactionErrors)].slice(0,8),generated:captures.length>0,captures,pendingAtReturn:pending.size};
+
+    const firstAttemptCount=captures.length;
+    const firstAttemptEmpty=firstAttemptCount>0&&captures.slice(0,firstAttemptCount).every(x=>!x.summary||x.summary.bytes===0);
+    const retry={triggered:false,reason:null,newNativeResponses:0,usableNativeResponse:false,error:null};
+    if(firstAttemptEmpty){
+      retry.triggered=true;
+      retry.reason='HTTP 200/body vazio na item_list inicial';
+      onProgress('fallback-retry','item_list respondeu vazia. Fazendo uma nova navegação limpa para o TikTok gerar outra requisição e novos parâmetros…');
+      try{
+        await page.goto('about:blank',{waitUntil:'load',timeout:5000}).catch(()=>{});
+        await page.waitForTimeout(500);
+        await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR&visual_retry='+Date.now(),{waitUntil:'domcontentloaded',timeout:20000});
+        await page.waitForTimeout(10000);
+        deadline=Date.now()+15000;
+        while(pending.size&&Date.now()<deadline){try{await Promise.race([Promise.allSettled([...pending]),page.waitForTimeout(250)])}catch(e){interactionErrors.push('retry-pending-wait: '+String(e.message||e));break}}
+        const retryCaptures=captures.slice(firstAttemptCount);
+        retry.newNativeResponses=retryCaptures.length;
+        retry.usableNativeResponse=retryCaptures.some(x=>x.summary?.bytes>0&&x.summary?.jsonParsed);
+        onProgress('fallback-retry','Nova tentativa: '+retry.newNativeResponses+' item_list · resposta utilizável '+(retry.usableNativeResponse?'SIM':'não')+'.');
+      }catch(e){
+        retry.error=String(e.message||e);
+        onProgress('fallback-retry','Nova tentativa falhou: '+retry.error);
+      }
+    }
+
+    const alternativeSources=fallbackEvidence.map(e=>({
+      url:e.url,status:e.status,resourceType:e.resourceType,bytes:e.bytes,matchedIds:e.matchedIds,
+      targets:Object.fromEntries(Object.entries(e.targets||{}).map(([id,p])=>[id,{jsonParsed:p.parsed,topKeys:p.topKeys,matchPaths:(p.matches||[]).map(m=>m.path)}]))
+    })).slice(0,40);
+    const fallback={retry,alternativeSources,alternativeSourceCount:alternativeSources.length,
+      result:retry.usableNativeResponse?'ITEM_LIST_RECOVERED':alternativeSources.length?'ALTERNATIVE_PUBLIC_SOURCE_FOUND':firstAttemptEmpty?'NO_PUBLIC_FALLBACK_FOUND':'NOT_NEEDED'};
+    if(firstAttemptEmpty&&!retry.usableNativeResponse)onProgress('fallback-route',alternativeSources.length?'item_list continuou vazia, mas outra resposta pública contém A/B.':'item_list continuou vazia e nenhuma outra resposta pública com A/B apareceu.');
+
+    return {username:user,emulatedContext:{ua:'Windows Chrome 153',navigatorPlatform:'Win32',locale:'pt-BR',timezone:'America/Sao_Paulo',viewport:'1600x900',profileLang:'pt-BR',interaction:'passive-no-click-no-scroll'},navigationError,interactionErrors:[...new Set(interactionErrors)].slice(0,8),generated:captures.length>0,captures,fallback,pendingAtReturn:pending.size};
   }finally{await context.close().catch(()=>{})}
 }
 export async function traceTikTokAB(urlA,urlB,onProgress=()=>{}){
