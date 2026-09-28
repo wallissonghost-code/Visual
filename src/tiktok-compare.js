@@ -87,18 +87,18 @@ function collectProfileVideos(html,username){
   while((m=re.exec(text))){if(!username||m[1].toLowerCase()===username.toLowerCase()){ids.add(m[2]);links.add('https://www.tiktok.com/@'+m[1]+'/video/'+m[2])}}
   return {ids:[...ids],links:[...links]};
 }
-export async function inspectTikTokProfile(username,urlA,urlB){
-  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{}){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');onProgress('start','Iniciando busca por @'+user+'…');
   let browser;
   try{
     browser=await chromium.launch({headless:true});
-    const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),responses=[];
+    onProgress('browser','Navegador iniciado. Abrindo perfil…');const context=await browser.newContext({serviceWorkers:'block'}),page=await context.newPage(),responses=[];
     page.on('response',async r=>{if(!isTikTok(r.url()))return;let body='';const type=r.request().resourceType();if(['xhr','fetch','document'].includes(type)){try{body=(await r.text()).slice(0,1000000)}catch{}}responses.push({status:r.status(),resourceType:type,url:cleanUrl(r.url()),body})});
     const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user);
-    const res=await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:25000});await page.waitForTimeout(5000);const html=await page.content();
+    const res=await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:25000});onProgress('profile','Perfil respondeu HTTP '+(res?.status()||'-')+'. Observando carregamento…');await page.waitForTimeout(5000);const html=await page.content();onProgress('html','Perfil carregado: '+Buffer.byteLength(html)+' bytes. Procurando vídeos…');
     const found=collectProfileVideos(html,user);for(const x of responses){const more=collectProfileVideos(x.body,user);more.ids.forEach(v=>found.ids.push(v));more.links.forEach(v=>found.links.push(v))}
-    found.ids=[...new Set(found.ids)];found.links=[...new Set(found.links)];
-    const probes=[];for(const raw of [urlA,urlB].filter(Boolean)){try{const x=await inspectOne(browser,raw);probes.push({input:raw,id:x.id,finalUrl:x.finalUrl,foundInProfile:x.id?found.ids.includes(x.id):false,markers:x.markers})}catch(e){probes.push({input:raw,error:e.message})}}
-    return {kind:'tiktok-profile-route-inspect',createdAt:new Date().toISOString(),username:user,profileUrl,status:res?.status()||null,finalUrl:cleanUrl(page.url()),htmlBytes:Buffer.byteLength(html),discoveredVideoIds:found.ids,discoveredVideoLinks:found.links,probes,observedRequests:responses.map(x=>({status:x.status,resourceType:x.resourceType,url:x.url})).slice(0,120),note:'Busca somente evidências públicas observáveis no perfil e nas respostas carregadas pelo navegador.'};
+    found.ids=[...new Set(found.ids)];found.links=[...new Set(found.links)];onProgress('videos',found.ids.length+' vídeo(s) público(s) encontrado(s) pelo perfil.');
+    const probes=[];let probeIndex=0;for(const raw of [urlA,urlB].filter(Boolean)){probeIndex++;onProgress('probe','Verificando link '+probeIndex+'/2…');try{const x=await inspectOne(browser,raw);probes.push({input:raw,id:x.id,finalUrl:x.finalUrl,foundInProfile:x.id?found.ids.includes(x.id):false,markers:x.markers})}catch(e){probes.push({input:raw,error:e.message})}}
+    onProgress('done','Finalizando relatório…');return {kind:'tiktok-profile-route-inspect',createdAt:new Date().toISOString(),username:user,profileUrl,status:res?.status()||null,finalUrl:cleanUrl(page.url()),htmlBytes:Buffer.byteLength(html),discoveredVideoIds:found.ids,discoveredVideoLinks:found.links,probes,observedRequests:responses.map(x=>({status:x.status,resourceType:x.resourceType,url:x.url})).slice(0,120),note:'Busca somente evidências públicas observáveis no perfil e nas respostas carregadas pelo navegador.'};
   }finally{await browser?.close().catch(()=>{})}
 }
