@@ -6,7 +6,9 @@ function saveLinks(){localStorage.setItem(SAVED_LINKS_KEY,JSON.stringify({a:$('#
 loadSavedLinks();
 $('#a').addEventListener('input',saveLinks);
 $('#b').addEventListener('input',saveLinks);
+let lastResult=null;
 function yn(v){return v?'SIM':'não'}
+$('#jsonExport').onclick=()=>{if(!lastResult)return;const blob=new Blob([JSON.stringify(lastResult,null,2)],{type:'application/json'});const url=URL.createObjectURL(blob);const a=document.createElement('a');a.href=url;a.download='visual-tiktok-compare-'+new Date().toISOString().replace(/[:.]/g,'-')+'.json';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000)};
 function fmt(d){
  const o=[],one=(x,n)=>{o.push(n);o.push('Entrada: '+x.input);o.push('Final: '+x.finalUrl);o.push('HTTP: '+(x.status??'-')+' | HTML: '+x.htmlBytes+' bytes');o.push('Perfil: @'+(x.username||'-')+' | Video ID: '+(x.id||'-')+' | ID no HTML: '+x.idOccurrences+'x');o.push('Canonical: '+(x.canonical||'-'));o.push('Marcadores: '+Object.entries(x.markers).filter(([,v])=>v).map(([k])=>k).join(', ')||'nenhum');o.push('')};
  one(d.a,'A · CONTROLE');one(d.b,'B · INVESTIGADO');
@@ -17,4 +19,4 @@ function fmt(d){
  diag(d.a,'A');diag(d.b,'B');
  o.push('Nota: '+d.note);return o.join('\n')
 }
-$('#run').onclick=async()=>{const a=$('#a').value.trim(),b=$('#b').value.trim();if(!a||!b)return alert('Cole os dois links do TikTok.');$('#run').disabled=true;$('#status').classList.remove('hidden');$('#result').classList.add('hidden');try{const r=await fetch('/api/tiktok/compare',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({a,b})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha');$('#report').textContent=fmt(d);$('#badge').textContent='CONCLUÍDO';$('#result').classList.remove('hidden')}catch(e){$('#report').textContent='Falha: '+e.message;$('#badge').textContent='FALHOU';$('#result').classList.remove('hidden')}finally{$('#run').disabled=false;$('#status').classList.add('hidden')}};
+$('#run').onclick=async()=>{const a=$('#a').value.trim(),b=$('#b').value.trim();if(!a||!b)return alert('Cole os dois links do TikTok.');$('#run').disabled=true;$('#status').classList.remove('hidden');$('#result').classList.add('hidden');try{const r=await fetch('/api/tiktok/compare',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({a,b})});const d=await r.json();if(!r.ok)throw Error(d.error||'Falha');lastResult=d;$('#report').textContent=fmt(d);$('#badge').textContent='CONCLUÍDO';$('#result').classList.remove('hidden')}catch(e){$('#report').textContent='Falha: '+e.message;$('#badge').textContent='FALHOU';$('#result').classList.remove('hidden')}finally{$('#run').disabled=false;$('#status').classList.add('hidden')}};
