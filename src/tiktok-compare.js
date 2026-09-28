@@ -226,7 +226,20 @@ export async function dumpTikTokItemList(username,onProgress=()=>{}){
       const context=await browser.newContext(profile.options);
       if(profile.init)await context.addInitScript((mode)=>{try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{}try{Object.defineProperty(navigator,'language',{get:()=> 'pt-BR',configurable:true})}catch{}try{Object.defineProperty(navigator,'languages',{get:()=> ['pt-BR','pt'],configurable:true})}catch{}if(mode==='stealth-basic'){try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{}try{delete Object.getPrototypeOf(navigator).webdriver}catch{}try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{}try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}}},profile.init);
       const page=await context.newPage(),pending=new Set();
-      page.on('response',r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const task=(async()=>{const rec={attempt:profile.name,url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'))}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list',profile.name+': HTTP '+rec.status+' · '+(rec.summary?.bytes||0)+' bytes · '+(rec.summary?.itemCount||0)+' itens.')})();pending.add(task);task.finally(()=>pending.delete(task))});
+      let backendDirectDone=false;
+      page.on('response',r=>{if(!/\/api\/post\/item_list\//.test(r.url()))return;const task=(async()=>{const rec={attempt:profile.name,url:cleanUrl(r.url()),status:r.status(),resourceType:r.request().resourceType(),contentType:r.headers()['content-type']||'',bodyRead:false,bodyError:null,summary:null};try{await r.finished();const body=await r.body();rec.bodyRead=true;rec.summary=summarizeItemListBody(body.toString('utf8'))}catch(e){rec.bodyError=String(e.message||e)}dumps.push(rec);onProgress('item-list',profile.name+': HTTP '+rec.status+' · '+(rec.summary?.bytes||0)+' bytes · '+(rec.summary?.itemCount||0)+' itens.');
+        if(profile.name==='WINDOWS_BR_REDUCED_AUTOMATION'&&!backendDirectDone){
+          backendDirectDone=true;
+          const direct={attempt:'BACKEND_DIRECT',sourceAttempt:profile.name,url:cleanUrl(r.url()),status:null,resourceType:'node-fetch',contentType:'',bodyRead:false,bodyError:null,summary:null,responseHeaders:{}};
+          try{
+            const rr=await fetch(r.url(),{method:'GET',redirect:'follow',headers:{'user-agent':profile.options.userAgent,'accept':'application/json, text/plain, */*','accept-language':'pt-BR,pt;q=0.9,en;q=0.8','referer':'https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR'}});
+            direct.status=rr.status;direct.contentType=rr.headers.get('content-type')||'';
+            for(const k of ['content-length','server','via','x-cache','x-cache-status','cf-ray']){const v=rr.headers.get(k);if(v)direct.responseHeaders[k]=v}
+            const body=await rr.text();direct.bodyRead=true;direct.summary=summarizeItemListBody(body);
+          }catch(e){direct.bodyError=String(e.message||e)}
+          dumps.push(direct);onProgress('backend-direct','BACKEND_DIRECT: HTTP '+String(direct.status)+' · '+(direct.summary?.bytes||0)+' bytes · '+(direct.summary?.itemCount||0)+' itens.');
+        }
+      })();pending.add(task);task.finally(()=>pending.delete(task))});
       try{
         onProgress('attempt','Tentativa '+profile.name+'…');
         if(profile.warm){try{await page.goto('https://www.tiktok.com/?lang=pt-BR',{waitUntil:'domcontentloaded',timeout:15000});await page.waitForTimeout(1800)}catch{}}
@@ -257,7 +270,7 @@ export async function dumpTikTokItemList(username,onProgress=()=>{}){
       }finally{await context.close().catch(()=>{})}
       if(dumps.some(x=>x.attempt===profile.name&&x.summary?.itemCount>0)){onProgress('success',profile.name+' encontrou vídeos reais. Encerrando bateria.');break}
     }
-    return {kind:'tiktok-item-list-battery',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:0,note:'Bateria automática: inclui controle padrão, Windows/BR, aquecido e uma tentativa isolada com sinais triviais de automação reduzidos; cada tentativa registra a item_list nativa e o documento/Universal Data realmente recebido. Valores de cookies não são exportados; apenas nomes e contagem.'};
+    return {kind:'tiktok-item-list-battery',createdAt:new Date().toISOString(),username:user,dumps,pendingAtReturn:0,note:'Bateria automática: inclui controle padrão, Windows/BR, aquecido, sinais triviais de automação reduzidos e BACKEND_DIRECT repetindo no Node a URL pública assinada observada; cada tentativa registra a item_list nativa e o documento/Universal Data realmente recebido. Valores de cookies não são exportados; apenas nomes e contagem.'};
   }finally{await browser?.close().catch(()=>{})}
 }
 function sourceSnapshot(label,x){
