@@ -39,6 +39,28 @@ function inspectEmbedStructuredState(source,videoIds){
   }).filter(x=>x.matchedIds.length||x.hits.length);
   return {needles:findings,scripts};
 }
+async function inspectEmbedClientScripts(source){
+  const srcs=[...source.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1].replace(/&amp;/g,'&'));
+  const unique=[...new Set(srcs)].slice(0,30), results=[];
+  const needles=['autoFetch','videoList','playCount','page','cursor','hasMore','offset','pagination','creator_embed','proxyApi'];
+  for(const raw of unique){
+    let url=raw;
+    if(url.startsWith('//'))url='https:'+url;
+    else if(url.startsWith('/'))url='https://www.tiktok.com'+url;
+    if(!/^https?:\/\//i.test(url))continue;
+    try{
+      const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept':'*/*','referer':'https://www.tiktok.com/'}});
+      const body=await r.text(),hits=needles.filter(n=>body.includes(n)),contexts=[];
+      for(const n of hits){
+        let from=0;
+        for(let i=0;i<3;i++){const p=body.indexOf(n,from);if(p<0)break;contexts.push({needle:n,context:body.slice(Math.max(0,p-500),Math.min(body.length,p+n.length+900)).replace(/\s+/g,' ')});from=p+n.length}
+      }
+      const endpoints=[...new Set([...body.matchAll(/["'`](\/[^"'\`]{1,180}(?:video|embed|item|post|list|feed)[^"'\`]{0,180})["'`]/gi)].map(m=>m[1]))].slice(0,60);
+      if(hits.length||endpoints.length)results.push({url:r.url,status:r.status,bytes:Buffer.byteLength(body),hits,contexts:contexts.slice(0,20),endpointCandidates:endpoints});
+    }catch(e){results.push({url,error:String(e.message||e)})}
+  }
+  return {scriptCount:unique.length,scripts:results};
+}
 async function probeTikTokEmbed(username){
   const user=String(username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
   if(!user)throw new Error('Informe o @user.');
@@ -90,7 +112,7 @@ async function probeTikTokEmbed(username){
   try{
     const er=await fetch('https://www.tiktok.com/embed/@'+encodeURIComponent(user),{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept-language':'pt-BR,pt;q=0.9,en;q=0.8'}});
     const eb=await er.text();
-    structuredState=inspectEmbedStructuredState(eb,[...ids]);structuredState.frontity=mapFrontityState(eb,user,[...ids]);
+    structuredState=inspectEmbedStructuredState(eb,[...ids]);structuredState.frontity=mapFrontityState(eb,user,[...ids]);structuredState.clientScripts=await inspectEmbedClientScripts(eb);
   }catch(e){structuredState={error:String(e.message||e)}}
   const allNumeric=[...new Set(attempts.flatMap(a=>a.numericIdCandidates||[]))];
   const details=attempts.flatMap(a=>a.idDetails||[]).filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
