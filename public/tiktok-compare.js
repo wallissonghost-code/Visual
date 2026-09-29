@@ -29,31 +29,17 @@ const quietBtn=document.querySelector('#runTikTokQuiet');
 if(quietBtn)quietBtn.onclick=async()=>{
   const input=document.querySelector('#username');const username=String(input&&input.value||'').trim();
   if(!username){batteryPanel.classList.remove('hidden');batteryState.textContent='Informe o @usuário';batteryDetail.textContent='Exemplo: @oopedrogames';return}
-  quietBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Iniciando navegador…';batteryDetail.textContent='Aguardando o servidor começar';batteryResults.innerHTML='';
-  const live=[];
-  const show=(stage,message)=>{
-    batteryState.textContent=message||stage;
-    live.push({stage,message});
-    batteryResults.innerHTML=live.map((v,i)=>'<div class="batteryRow"><b>'+(i===live.length-1?'AGORA':'OK')+' · '+String(v.stage||'').toUpperCase()+'</b><span>'+String(v.message||'').replace(/</g,'&lt;')+'</span></div>').join('');
-  };
+  quietBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Iniciando navegador…';batteryDetail.textContent='O teste fará 3 prints visíveis';batteryResults.innerHTML='';
+  const live=[];const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const show=(stage,message)=>{batteryState.textContent=message||stage;live.push({stage,message});batteryResults.innerHTML=live.map((v,i)=>'<div class="batteryRow"><b>'+(i===live.length-1?'AGORA':'OK')+' · '+esc(v.stage).toUpperCase()+'</b><span>'+esc(v.message)+'</span></div>').join('')};
   try{
-    const r=await fetch('/api/tiktok/quiet?username='+encodeURIComponent(username),{cache:'no-store'});
-    if(!r.ok)throw Error('HTTP '+r.status);
-    if(!r.body)throw Error('Este navegador não liberou o fluxo ao vivo.');
+    const r=await fetch('/api/tiktok/quiet?username='+encodeURIComponent(username),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);if(!r.body)throw Error('Fluxo ao vivo indisponível.');
     const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='',x=null;
-    while(true){
-      const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
-      const lines=buffer.split('\n');buffer=done?'':lines.pop();
-      for(const line of lines){if(!line.trim())continue;const msg=JSON.parse(line);if(msg.type==='progress')show(msg.stage,msg.message);else if(msg.type==='error')throw Error(msg.error||'Falha no teste');else if(msg.type==='result')x=msg.result}
-      if(done)break;
-    }
-    if(!x)throw Error('O servidor terminou sem resultado.');
-    setBatteryShare(x);lastResult=x;
-    const q=x.quiet||{},sc=x.afterOneScroll||{};
-    batteryState.textContent='Teste quieto concluído';
-    batteryDetail.textContent='Parado: '+(q.videoCount||0)+' vídeo(s) · após 1 scroll: '+(sc.videoCount||0)+' · novos: '+((sc.newVideoIds||[]).length);
-    const rows=(arr,label)=>(arr||[]).map(v=>'<div class="batteryRow"><b>'+label+' · '+String(v.type||'').toUpperCase()+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes</span><small>'+String(v.url||'').replace(/</g,'&lt;')+(v.bodyError?' · '+v.bodyError:'')+'</small></div>').join('');
-    batteryResults.innerHTML='<div class="batteryRow"><b>30 S PARADO</b><span>IDs: '+((q.videoIds||[]).join(', ')||'nenhum')+'</span><small>'+((q.network||[]).length)+' respostas naturais observadas.</small></div><div class="batteryRow"><b>DEPOIS DE 1 SCROLL</b><span>Novos IDs: '+((sc.newVideoIds||[]).join(', ')||'nenhum')+'</span><small>Total: '+(sc.videoCount||0)+' · '+((sc.network||[]).length)+' novas respostas.</small></div><div class="batteryRow"><b>SESSÃO</b><span>'+((x.session?.cookieNames||[]).join(', ')||'sem cookies')+'</span><small>'+((x.session?.cookieCount)||0)+' cookies; valores não exportados.</small></div>'+rows(q.network,'QUIETO')+rows(sc.network,'1 SCROLL');
-  }catch(e){batteryState.textContent='Falha no teste quieto';batteryDetail.textContent=e.message}
-  finally{quietBtn.disabled=false}
+    while(true){const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});const lines=buffer.split('\n');buffer=done?'':lines.pop();for(const line of lines){if(!line.trim())continue;const msg=JSON.parse(line);if(msg.type==='progress')show(msg.stage,msg.message);else if(msg.type==='error')throw Error(msg.error||'Falha no teste');else if(msg.type==='result')x=msg.result}if(done)break}
+    if(!x)throw Error('O servidor terminou sem resultado.');setBatteryShare(x);lastResult=x;
+    batteryState.textContent='Teste visual concluído';batteryDetail.textContent=(x.screenshots?.length||0)+' prints · '+(x.postTimeline?.length||0)+' chamada(s) post/item_list';
+    const shots=(x.screenshots||[]).map((p,i)=>'<div class="batteryRow visualShot"><b>'+esc(p.label||('PRINT '+(i+1)))+'</b><img src="'+p.data+'" alt="'+esc(p.label)+'" style="display:block;width:100%;height:auto;margin-top:10px;border-radius:12px" loading="lazy"><small>'+esc(p.url||'')+'</small></div>').join('');
+    const net=(x.postTimeline||[]).map(v=>'<div class="batteryRow"><b>POST/ITEM_LIST #'+v.index+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes · buffer '+(v.bufferBytes??'-')+'</span><small>region '+esc(v.region||'-')+' · content-length '+esc(v.headers?.['content-length']??'-')+' · '+esc(v.headers?.['x-cache']??'')+'</small></div>').join('');
+    batteryResults.innerHTML=shots+net+'<div class="batteryRow"><b>SESSÃO</b><span>'+esc((x.session?.cookieNames||[]).join(', ')||'sem cookies')+'</span><small>'+(x.session?.cookieCount||0)+' cookies; valores não exportados.</small></div>';
+  }catch(e){batteryState.textContent='Falha no teste visual';batteryDetail.textContent=e.message}finally{quietBtn.disabled=false}
 };
