@@ -548,6 +548,26 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     onProgress('observe','Reload concluído. Observando 20 s sem novas interações…');
     await page.waitForTimeout(20000);
     screenshots.push(await shot(page,'PRINT 3 · captura + reload + 20 s'));
+    onProgress('retry','Procurando o botão Atualizar que o próprio TikTok exibiu…');
+    let retry={found:false,clicked:false,text:null,error:null};
+    try{
+      const candidates=[
+        page.getByRole('button',{name:/atualizar|refresh|retry|tentar novamente/i}),
+        page.getByText(/atualizar|refresh|retry|tentar novamente/i,{exact:true})
+      ];
+      let target=null;
+      for(const c of candidates){if(await c.count()){const first=c.first();if(await first.isVisible().catch(()=>false)){target=first;break}}}
+      if(target){
+        retry.found=true;retry.text=(await target.innerText().catch(()=>''))||null;
+        await target.click({timeout:5000});retry.clicked=true;
+        onProgress('retry-wait','Atualizar clicado. Observando mais 15 s…');
+        await page.waitForTimeout(15000);
+      }else{
+        onProgress('retry-missing','Botão Atualizar não estava visível nessa etapa.');
+        await page.waitForTimeout(1500);
+      }
+    }catch(e){retry.error=String(e.message||e);onProgress('retry-error','Falha ao clicar em Atualizar: '+retry.error)}
+    screenshots.push(await shot(page,'PRINT 4 · depois de clicar Atualizar'));
     const endedAt=Date.now(),html=await page.content(),found=collectProfileVideos(html,user);
     for(const e of events){const z=collectProfileVideos(e.body,user);found.ids.push(...z.ids);found.links.push(...z.links)}
     found.ids=[...new Set(found.ids)];found.links=[...new Set(found.links)];
@@ -559,6 +579,6 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     let postBody={parsed:false,bytes:last?.bytes||0,error:last?.body?'invalid-json':'empty-body'};
     if(last?.body){try{const j=JSON.parse(last.body),arr=Array.isArray(j.itemList)?j.itemList:Array.isArray(j.items)?j.items:[];postBody={parsed:true,bytes:last.bytes,itemCount:arr.length,ids:arr.map(x=>String(x?.id||'')).filter(Boolean),cursor:j.cursor??null,hasMore:j.hasMore??null,statusCode:j.statusCode??j.status_code??null}}catch{}}
     onProgress('done','3 prints concluídos e captura técnica finalizada.');
-    return {kind:'tiktok-visual-pc-flow',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{warmupMs:15000,observationMs:endedAt-startedAt},screenshots,visible:{htmlBytes:Buffer.byteLength(html),videoIds:found.ids,videoCount:found.ids.length},network:safeEvents,postTimeline,responseBodies:{post:postBody},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Fluxo: abre perfil sem captura técnica, Print 1, espera/interação mínima, Print 2, liga captura, reload, observa 20 s, Print 3. Sem replay ou API fabricada. Segredos de cookies não são exportados.'};
+    return {kind:'tiktok-visual-pc-flow',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{warmupMs:15000,observationMs:endedAt-startedAt},screenshots,retry,visible:{htmlBytes:Buffer.byteLength(html),videoIds:found.ids,videoCount:found.ids.length},network:safeEvents,postTimeline,responseBodies:{post:postBody},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Fluxo: abre perfil sem captura técnica, Print 1, espera/interação mínima, Print 2, liga captura, reload, observa 20 s, Print 3, clica no Atualizar real se estiver visível, espera 15 s e faz Print 4. Sem replay ou API fabricada. Segredos de cookies não são exportados.'};
   }finally{await browser?.close().catch(()=>{})}
 }
