@@ -27,17 +27,33 @@ batteryResults.innerHTML=ids+details+'<div class="batteryRow"><b>FRONTITY JSON</
 
 const quietBtn=document.querySelector('#runTikTokQuiet');
 if(quietBtn)quietBtn.onclick=async()=>{
-  const username=$('#username').value.trim();if(!username)return alert('Informe o @usuário.');
-  quietBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Entrando no TikTok…';batteryDetail.textContent='30 segundos sem fazer nada + 1 scroll';batteryResults.innerHTML='';
+  const input=document.querySelector('#username');const username=String(input&&input.value||'').trim();
+  if(!username){batteryPanel.classList.remove('hidden');batteryState.textContent='Informe o @usuário';batteryDetail.textContent='Exemplo: @oopedrogames';return}
+  quietBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Iniciando navegador…';batteryDetail.textContent='Aguardando o servidor começar';batteryResults.innerHTML='';
+  const live=[];
+  const show=(stage,message)=>{
+    batteryState.textContent=message||stage;
+    live.push({stage,message});
+    batteryResults.innerHTML=live.map((v,i)=>'<div class="batteryRow"><b>'+(i===live.length-1?'AGORA':'OK')+' · '+String(v.stage||'').toUpperCase()+'</b><span>'+String(v.message||'').replace(/</g,'&lt;')+'</span></div>').join('');
+  };
   try{
     const r=await fetch('/api/tiktok/quiet?username='+encodeURIComponent(username),{cache:'no-store'});
-    const x=await r.json();if(!r.ok)throw Error(x.error||('HTTP '+r.status));
+    if(!r.ok)throw Error('HTTP '+r.status);
+    if(!r.body)throw Error('Este navegador não liberou o fluxo ao vivo.');
+    const reader=r.body.getReader(),decoder=new TextDecoder();let buffer='',x=null;
+    while(true){
+      const {value,done}=await reader.read();buffer+=decoder.decode(value||new Uint8Array(),{stream:!done});
+      const lines=buffer.split('\n');buffer=done?'':lines.pop();
+      for(const line of lines){if(!line.trim())continue;const msg=JSON.parse(line);if(msg.type==='progress')show(msg.stage,msg.message);else if(msg.type==='error')throw Error(msg.error||'Falha no teste');else if(msg.type==='result')x=msg.result}
+      if(done)break;
+    }
+    if(!x)throw Error('O servidor terminou sem resultado.');
     setBatteryShare(x);lastResult=x;
-    const q=x.quiet||{},s=x.afterOneScroll||{};
+    const q=x.quiet||{},sc=x.afterOneScroll||{};
     batteryState.textContent='Teste quieto concluído';
-    batteryDetail.textContent='Parado: '+(q.videoCount||0)+' vídeo(s) · após 1 scroll: '+(s.videoCount||0)+' · novos: '+((s.newVideoIds||[]).length);
-    const rows=(arr,label)=>(arr||[]).map(v=>'<div class="batteryRow"><b>'+label+' · '+v.type.toUpperCase()+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes</span><small>'+String(v.url||'').replace(/</g,'&lt;')+(v.bodyError?' · '+v.bodyError:'')+'</small></div>').join('');
-    batteryResults.innerHTML='<div class="batteryRow"><b>30 S PARADO</b><span>IDs: '+((q.videoIds||[]).join(', ')||'nenhum')+'</span><small>'+((q.network||[]).length)+' respostas document/xhr/fetch observadas naturalmente.</small></div><div class="batteryRow"><b>DEPOIS DE 1 SCROLL</b><span>Novos IDs: '+((s.newVideoIds||[]).join(', ')||'nenhum')+'</span><small>Total visível: '+(s.videoCount||0)+' · '+((s.network||[]).length)+' novas respostas.</small></div><div class="batteryRow"><b>SESSÃO</b><span>'+((x.session?.cookieNames||[]).join(', ')||'sem cookies')+'</span><small>'+((x.session?.cookieCount)||0)+' cookies; valores não exportados.</small></div>'+rows(q.network,'QUIETO')+rows(s.network,'1 SCROLL');
+    batteryDetail.textContent='Parado: '+(q.videoCount||0)+' vídeo(s) · após 1 scroll: '+(sc.videoCount||0)+' · novos: '+((sc.newVideoIds||[]).length);
+    const rows=(arr,label)=>(arr||[]).map(v=>'<div class="batteryRow"><b>'+label+' · '+String(v.type||'').toUpperCase()+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes</span><small>'+String(v.url||'').replace(/</g,'&lt;')+(v.bodyError?' · '+v.bodyError:'')+'</small></div>').join('');
+    batteryResults.innerHTML='<div class="batteryRow"><b>30 S PARADO</b><span>IDs: '+((q.videoIds||[]).join(', ')||'nenhum')+'</span><small>'+((q.network||[]).length)+' respostas naturais observadas.</small></div><div class="batteryRow"><b>DEPOIS DE 1 SCROLL</b><span>Novos IDs: '+((sc.newVideoIds||[]).join(', ')||'nenhum')+'</span><small>Total: '+(sc.videoCount||0)+' · '+((sc.network||[]).length)+' novas respostas.</small></div><div class="batteryRow"><b>SESSÃO</b><span>'+((x.session?.cookieNames||[]).join(', ')||'sem cookies')+'</span><small>'+((x.session?.cookieCount)||0)+' cookies; valores não exportados.</small></div>'+rows(q.network,'QUIETO')+rows(sc.network,'1 SCROLL');
   }catch(e){batteryState.textContent='Falha no teste quieto';batteryDetail.textContent=e.message}
   finally{quietBtn.disabled=false}
 };
