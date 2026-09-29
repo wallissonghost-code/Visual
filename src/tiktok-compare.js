@@ -541,17 +541,21 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
       events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bodyError,body:body.slice(0,1000000)});
     });
     const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
+    onProgress('open','Monitoramento armado antes da navegação (equivalente ao F12/Network aberto). Entrando em @'+user+'…');
+    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
+    await page.waitForTimeout(1200);
+    events.length=0;
     const startedAt=Date.now();
-    onProgress('open','Abrindo @'+user+' como Chrome/Windows pt-BR…');
-    const nav=await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
-    onProgress('quiet','Página abriu. Agora 45 segundos sem tocar em nada, igual ao teste no PC.');
-    await page.waitForTimeout(45000);
+    onProgress('reload','Recarregando a página agora, igual ao teste manual do PC…');
+    const nav=await page.reload({waitUntil:'domcontentloaded',timeout:30000});
+    onProgress('quiet','Reload concluído. Esperando 20 segundos sem clicar e sem scroll.');
+    await page.waitForTimeout(20000);
     const quietEndedAt=Date.now(),quietHtml=await page.content();
     const quietFound=collectProfileVideos(quietHtml,user);
     for(const e of events.filter(x=>x.at<=quietEndedAt)){const z=collectProfileVideos(e.body,user);quietFound.ids.push(...z.ids);quietFound.links.push(...z.links)}
     quietFound.ids=[...new Set(quietFound.ids)];quietFound.links=[...new Set(quietFound.links)];
     const quietEvents=events.filter(x=>x.at<=quietEndedAt).map(({body,...x})=>x);
-    onProgress('observe','45 s concluídos: '+quietFound.ids.length+' ID(s). Nenhum scroll/click foi feito.');
+    onProgress('observe','20 s após o reload: '+quietFound.ids.length+' ID(s). Nenhum scroll/click foi feito.');
     const cookies=await context.cookies('https://www.tiktok.com');
     const summarizeReq=(e)=>{
       if(!e)return null;
@@ -603,6 +607,6 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
       onProgress('compare','Comparado post × repost: '+Object.keys(different).length+' parâmetro(s) diferente(s), '+Object.keys(onlyPost).length+' só no post, '+Object.keys(onlyRepost).length+' só no repost.');
     }else onProgress('compare','Comparação incompleta: post='+Boolean(post)+' repost='+Boolean(repost)+'.');
     onProgress('done','Fim. Sem replay e sem requisição fabricada.');
-    return {kind:'tiktok-pc-style-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},postTimeline,requestComparison,responseBodies:{post:postBodySummary,repost:repostBodySummary},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Imita o teste manual no PC: abriu/recarregou o perfil e apenas esperou. Zero scroll, zero click, zero replay e zero requisição fabricada. Valores de cookies não são exportados.'};
+    return {kind:'tiktok-pc-style-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},postTimeline,requestComparison,responseBodies:{post:postBodySummary,repost:repostBodySummary},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Imita o teste manual do PC: monitoramento de rede armado antes, abre o TikTok/perfil, recarrega a página e espera 20 s. Zero scroll, zero click, zero replay e zero requisição fabricada. Eventos anteriores ao reload são descartados. Valores de cookies não são exportados.'};
   }finally{await browser?.close().catch(()=>{})}
 }
