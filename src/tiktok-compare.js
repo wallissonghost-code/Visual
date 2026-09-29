@@ -512,7 +512,24 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
   let browser;
   try{
     browser=await chromium.launch({headless:true});
-    const context=await browser.newContext({serviceWorkers:'allow'});
+    const context=await browser.newContext({
+      serviceWorkers:'allow',
+      userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+      locale:'pt-BR',
+      timezoneId:'America/Sao_Paulo',
+      viewport:{width:1365,height:768},
+      screen:{width:1365,height:768},
+      deviceScaleFactor:1,
+      colorScheme:'light',
+      hasTouch:false,
+      isMobile:false
+    });
+    await context.addInitScript(()=>{
+      try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{}
+      try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{}
+      try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{}
+      try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}
+    });
     const page=await context.newPage();
     const events=[];
     page.on('response',async r=>{
@@ -525,7 +542,7 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     });
     const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
     const startedAt=Date.now();
-    onProgress('open','Abrindo @'+user+' uma única vez…');
+    onProgress('open','Abrindo @'+user+' como Chrome/Windows pt-BR…');
     const nav=await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
     onProgress('quiet','Página abriu. Agora 30 segundos sem tocar em nada.');
     await page.waitForTimeout(30000);
