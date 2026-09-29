@@ -66,6 +66,27 @@ async function inspectEmbedClientScripts(source){
   }
   return {scriptCount:unique.length,scripts:results};
 }
+async function replayEmbedProfileList(source,username){
+  const m=source.match(/<script[^>]+id=["']__FRONTITY_CONNECT_STATE__["'][^>]*>([\s\S]*?)<\/script>/i);
+  if(!m)return {ok:false,error:'FRONTITY_STATE_NOT_FOUND'};
+  let st;try{st=JSON.parse(m[1])}catch(e){return {ok:false,error:'FRONTITY_JSON_INVALID: '+e.message}}
+  const route=st?.source?.data?.['/embed/@'+username]||{};
+  const userId=route?.userInfo?.id||null,ttwid=st?.user?.ttwid||null;
+  const prefix=String(st?.theme?.embedApi||'').replace(/\/$/,'');
+  const base=(prefix&&/^https?:\/\//i.test(prefix)?prefix:'https://www.tiktok.com')+'/embed/api/profile/getItemList';
+  if(!userId||!ttwid)return {ok:false,userId,ttwid,error:'MISSING_USERID_OR_TTWID'};
+  const tests=[];
+  for(const count of [10,20,30,50,100]){
+    const url=base+'?userId='+encodeURIComponent(userId)+'&count='+count;
+    try{
+      const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept':'application/json, text/plain, */*','accept-language':'pt-BR,pt;q=0.9,en;q=0.8','referer':'https://www.tiktok.com/embed/@'+username,'x-tt-webid':String(ttwid)}});
+      const body=await r.text();let j=null;try{j=JSON.parse(body)}catch{}
+      const items=Array.isArray(j?.items)?j.items:Array.isArray(j?.itemList)?j.itemList:[];
+      tests.push({count,status:r.status,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),itemCount:items.length,ids:items.map(x=>String(x?.id||x?.itemId||'')).filter(Boolean),keys:j&&typeof j==='object'?Object.keys(j):[],cursor:j?.cursor??j?.maxCursor??null,hasMore:j?.hasMore??j?.has_more??null,error:j?.message||j?.statusMsg||(!body?'EMPTY_BODY':null),preview:body.slice(0,500)});
+    }catch(e){tests.push({count,error:String(e.message||e)})}
+  }
+  return {ok:true,endpoint:base,userId,ttwid,initialEmbedCount:Array.isArray(route?.videoList)?route.videoList.length:0,tests};
+}
 async function probeTikTokEmbed(username){
   const user=String(username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
   if(!user)throw new Error('Informe o @user.');
@@ -117,7 +138,7 @@ async function probeTikTokEmbed(username){
   try{
     const er=await fetch('https://www.tiktok.com/embed/@'+encodeURIComponent(user),{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept-language':'pt-BR,pt;q=0.9,en;q=0.8'}});
     const eb=await er.text();
-    structuredState=inspectEmbedStructuredState(eb,[...ids]);structuredState.frontity=mapFrontityState(eb,user,[...ids]);structuredState.clientScripts=await inspectEmbedClientScripts(eb);
+    structuredState=inspectEmbedStructuredState(eb,[...ids]);structuredState.frontity=mapFrontityState(eb,user,[...ids]);structuredState.profileListReplay=await replayEmbedProfileList(eb,user);structuredState.clientScripts=await inspectEmbedClientScripts(eb);
   }catch(e){structuredState={error:String(e.message||e)}}
   const allNumeric=[...new Set(attempts.flatMap(a=>a.numericIdCandidates||[]))];
   const details=attempts.flatMap(a=>a.idDetails||[]).filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
