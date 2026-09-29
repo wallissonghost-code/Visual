@@ -545,20 +545,23 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
 }
 
 async function freshShotTarget(target){
-  let browser,context;
+  let browser,context,page,stage='launch';
   try{
     browser=await chromium.launch({headless:true});
-    context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo'});
-    await context.clearCookies();
-    const page=await context.newPage();
-    await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000}).catch(()=>null);
-    await page.waitForTimeout(5000);
-    const shot=await Promise.race([
-      page.screenshot({type:'jpeg',quality:78,fullPage:false}).catch(()=>null),
-      new Promise(resolve=>setTimeout(()=>resolve(null),3500))
-    ]);
+    stage='context';
+    context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR'});
+    stage='clearCookies';await context.clearCookies();
+    stage='page';page=await context.newPage();
+    stage='goto';await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000}).catch(e=>{console.log('[fresh-shot] goto warning',String(e.message||e));return null});
+    stage='wait';await page.waitForTimeout(5000);
+    stage='screenshot';
+    const shot=await Promise.race([page.screenshot({type:'jpeg',quality:78,fullPage:false}).catch(e=>{console.error('[fresh-shot] screenshot',e);return null}),new Promise(resolve=>setTimeout(()=>resolve(null),6000))]);
     if(!shot)throw new Error('SCREENSHOT_TIMEOUT');
+    console.log('[fresh-shot] ok',target,'url=',page.url(),'bytes=',shot.length);
     return shot;
+  }catch(e){
+    console.error('[fresh-shot] failed stage='+stage+' target='+target, e);
+    throw new Error('FRESH_SHOT_'+stage.toUpperCase()+': '+String(e.message||e));
   }finally{await context?.close().catch(()=>{});await browser?.close().catch(()=>{})}
 }
 export async function freshTikTokScreenshot(username,target='profile'){
