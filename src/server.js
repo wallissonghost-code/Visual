@@ -173,7 +173,7 @@ app.get('/api/tiktok/quiet',async(req,res)=>{
   res.setHeader('x-accel-buffering','no');
   res.flushHeaders?.();
   let closed=false;req.on('close',()=>{closed=true});
-  const send=(type,data={})=>{if(closed||res.writableEnded)return false;try{return res.write(JSON.stringify({type,...data})+'\\n')}catch{return false}};
+  const send=(type,data={})=>{if(closed||res.writableEnded)return false;try{return res.write(JSON.stringify({type,...data})+'\n')}catch{return false}};
   const heartbeat=setInterval(()=>send('heartbeat',{at:Date.now()}),10000);
   try{
     send('progress',{stage:'start',message:'Iniciando navegador…'});
