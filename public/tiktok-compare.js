@@ -43,3 +43,21 @@ if(quietBtn)quietBtn.onclick=async()=>{
     const f12=(x.f12Search?.matches||[]).map(v=>'<div class="batteryRow"><b>F12 · '+esc(v.path||'-')+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes</span><small>'+esc((v.hits||[]).join(' · '))+'</small></div>').join('');batteryResults.innerHTML=shots+acts+net+f12+'<div class="batteryRow"><b>SESSÃO</b><span>'+esc((x.session?.cookieNames||[]).join(', ')||'sem cookies')+'</span><small>'+(x.session?.cookieCount||0)+' cookies; valores não exportados.</small></div>';
   }catch(e){batteryState.textContent='Falha no teste visual';batteryDetail.textContent=e.message}finally{quietBtn.disabled=false}
 };
+const freshABCBtn=document.querySelector('#runFreshABC');
+if(freshABCBtn)freshABCBtn.onclick=async()=>{
+  const username=String(document.querySelector('#username')?.value||'@oopedrogames').trim();
+  freshABCBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Teste limpo em andamento…';batteryDetail.textContent='Perfil → A → B · 5 s cada · sessões separadas';batteryResults.innerHTML='';
+  try{
+    const targets=[['PERFIL','profile'],['A · #9','a'],['B · #10','b']],rows=[];
+    for(const [label,target] of targets){
+      batteryState.textContent='Abrindo '+label+' em sessão zerada…';
+      const url='/api/tiktok/fresh-shot?username='+encodeURIComponent(username)+'&target='+target+'&ts='+Date.now();
+      const r=await fetch(url,{cache:'no-store'});if(!r.ok)throw Error(label+' · HTTP '+r.status);
+      const blob=await r.blob(),src=URL.createObjectURL(blob);
+      rows.push('<div class="batteryRow visualShot"><b>'+label+'</b><img src="'+src+'" alt="'+label+'" style="display:block;width:100%;height:auto;margin-top:10px;border-radius:12px"><small>Contexto novo · estado limpo · espera 5 s</small></div>');
+      batteryResults.innerHTML=rows.join('');
+    }
+    batteryState.textContent='Teste limpo concluído';batteryDetail.textContent='3/3 prints · Perfil + A + B';
+  }catch(e){batteryState.textContent='Falha no teste limpo';batteryDetail.textContent=e.message}
+  finally{freshABCBtn.disabled=false}
+};
