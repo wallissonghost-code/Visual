@@ -555,7 +555,7 @@ async function freshShotTarget(target){
     stage='goto';await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000}).catch(e=>{console.log('[fresh-shot] goto warning',String(e.message||e));return null});
     stage='wait';await page.waitForTimeout(5000);
     stage='screenshot';
-    const shot=await Promise.race([page.screenshot({type:'jpeg',quality:78,fullPage:false}).catch(e=>{console.error('[fresh-shot] screenshot',e);return null}),new Promise(resolve=>setTimeout(()=>resolve(null),6000))]);
+    const shot=await Promise.race([page.screenshot({type:'jpeg',quality:65,fullPage:false,timeout:1800}).catch(e=>{console.error('[fresh-shot] screenshot',e);return null}),new Promise(resolve=>setTimeout(()=>resolve(null),2200))]);
     if(!shot)throw new Error('SCREENSHOT_TIMEOUT');
     console.log('[fresh-shot] ok',target,'url=',page.url(),'bytes=',shot.length);
     return shot;
