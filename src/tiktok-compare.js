@@ -536,9 +536,22 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
       if(!isTikTok(r.url()))return;
       const type=r.request().resourceType();
       if(!['document','xhr','fetch'].includes(type))return;
-      let body='',bodyError=null;
-      try{body=await r.text()}catch(e){bodyError=String(e.message||e)}
-      events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bodyError,body:body.slice(0,1000000)});
+      let body='',bodyError=null,bufferBytes=null,bufferError=null;
+      let responseHeaders={};
+      try{responseHeaders=await r.allHeaders()}catch{try{responseHeaders=r.headers()}catch{}}
+      try{
+        const buf=await r.body();
+        bufferBytes=buf.length;
+        body=buf.toString('utf8');
+      }catch(e){
+        bufferError=String(e.message||e);
+        try{body=await r.text()}catch(err){bodyError=String(err.message||err)}
+      }
+      const pickHeaders={};
+      for(const k of ['content-length','content-type','content-encoding','transfer-encoding','server','x-cache','via','location','akamai-grn','x-akamai-transformed']){
+        if(responseHeaders?.[k]!=null)pickHeaders[k]=responseHeaders[k];
+      }
+      events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bufferBytes,bufferError,bodyError,headers:pickHeaders,body:body.slice(0,1000000)});
     });
     const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
     onProgress('open','Monitoramento armado antes da navegação (equivalente ao F12/Network aberto). Entrando em @'+user+'…');
