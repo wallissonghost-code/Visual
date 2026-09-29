@@ -167,7 +167,19 @@ async function probeTikTokEmbed(username){
   });
   return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),details,structuredState,allNumericCandidateCount:allNumeric.length,allNumericCandidates:allNumeric,numericCandidates,attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
 }
-app.get('/api/tiktok/quiet',async(req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await observeTikTokQuietly(req.query.username))}catch(e){res.status(500).json({error:String(e.message||e)})}});
+app.get('/api/tiktok/quiet',async(req,res)=>{
+  res.setHeader('cache-control','no-store');
+  res.setHeader('content-type','application/x-ndjson; charset=utf-8');
+  res.setHeader('x-accel-buffering','no');
+  res.flushHeaders?.();
+  const send=(type,data={})=>res.write(JSON.stringify({type,...data})+'\n');
+  try{
+    send('progress',{stage:'start',message:'Iniciando navegador…'});
+    const result=await observeTikTokQuietly(req.query.username,(stage,message)=>send('progress',{stage,message}));
+    send('result',{result});
+    res.end();
+  }catch(e){send('error',{error:String(e.message||e)});res.end()}
+});
 app.get('/api/tiktok/embed-probe',async(req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeTikTokEmbed(req.query.username))}catch(e){res.status(400).json({error:String(e.message||e)})}});
 const TIKTOK_VIDEO_BATTERY=["https://vt.tiktok.com/ZSbYbPdBX/","https://vt.tiktok.com/ZSbYbXBWd/","https://vt.tiktok.com/ZSbYb4NLm/","https://vt.tiktok.com/ZSbYbwUbH/","https://vt.tiktok.com/ZSbYb9oXj/","https://vt.tiktok.com/ZSbYb36jv/","https://vt.tiktok.com/ZSbYbnoUe/","https://vt.tiktok.com/ZSbYb3tTh/","https://vt.tiktok.com/ZSb22UGrD/","https://vt.tiktok.com/ZSbjf9Ubx/","https://vt.tiktok.com/ZSbj5LE1a/","https://vt.tiktok.com/ZSbhd1fYP/","https://vt.tiktok.com/ZSbhe3Nox/"];
 app.get('/api/tiktok/video-detail-diff',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await compareTikTokVideoDetailShapes(TIKTOK_VIDEO_BATTERY[8],TIKTOK_VIDEO_BATTERY[9]))}catch(e){res.status(500).json({error:String(e.message||e)})}});
