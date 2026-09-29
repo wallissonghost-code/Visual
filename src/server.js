@@ -1,6 +1,28 @@
 import express from 'express';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFile} from 'node:child_process';import {resolveSecurityTarget} from './security-target.js';import {visualBuildInfo} from './version.js';import {mapUrlRuntime} from './network-map.js';import {dumpTikTokItemList,inspectTikTokVideoBatch,compareTikTokVideoDetailShapes} from './tiktok-compare.js';
 const app=express(),port=process.env.PORT||3000,jobs=new Map();app.use(express.json({limit:'64kb'}));app.use(express.static(path.resolve('public')));app.get('/health',(_,res)=>res.json({ok:true,service:'visual-qa',jobs:jobs.size,...visualBuildInfo()}));app.get('/api/version',(_,res)=>res.json({...visualBuildInfo(),startedAt:new Date().toISOString()}));
 
+async function probeTikTokEmbed(username){
+  const user=String(username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
+  if(!user)throw new Error('Informe o @user.');
+  const profile='https://www.tiktok.com/@'+user;
+  const urls=[
+    {name:'OEMBED_OFICIAL',url:'https://www.tiktok.com/oembed?url='+encodeURIComponent(profile)},
+    {name:'EMBED_PUBLICO',url:'https://www.tiktok.com/embed/@'+encodeURIComponent(user)}
+  ];
+  const attempts=[];const ids=new Set(),links=new Set();
+  for(const x of urls){
+    try{
+      const r=await fetch(x.url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept-language':'pt-BR,pt;q=0.9,en;q=0.8'}});
+      const body=await r.text();let source=body;
+      if(x.name==='OEMBED_OFICIAL'){try{const j=JSON.parse(body);source=body+'\n'+String(j.html||'')}catch{}}
+      for(const m of source.matchAll(/(?:video\/|data-video-id=[\"'])(\d{8,})/g))ids.add(m[1]);
+      for(const m of source.matchAll(/https?:\\?\/\\?\/(?:www\\?\.)?tiktok\\?\.com\\?\/@[^\s\"'<>]+?\\?\/video\\?\/(\d{8,})/g)){ids.add(m[1]);links.add('https://www.tiktok.com/@'+user+'/video/'+m[1])}
+      attempts.push({name:x.name,status:r.status,finalUrl:r.url,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),ids:[...ids]});
+    }catch(e){attempts.push({name:x.name,error:String(e.message||e),ids:[]})}
+  }
+  return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
+}
+app.get('/api/tiktok/embed-probe',async(req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeTikTokEmbed(req.query.username))}catch(e){res.status(400).json({error:String(e.message||e)})}});
 const TIKTOK_VIDEO_BATTERY=["https://vt.tiktok.com/ZSbYbPdBX/","https://vt.tiktok.com/ZSbYbXBWd/","https://vt.tiktok.com/ZSbYb4NLm/","https://vt.tiktok.com/ZSbYbwUbH/","https://vt.tiktok.com/ZSbYb9oXj/","https://vt.tiktok.com/ZSbYb36jv/","https://vt.tiktok.com/ZSbYbnoUe/","https://vt.tiktok.com/ZSbYb3tTh/","https://vt.tiktok.com/ZSb22UGrD/","https://vt.tiktok.com/ZSbjf9Ubx/","https://vt.tiktok.com/ZSbj5LE1a/","https://vt.tiktok.com/ZSbhd1fYP/","https://vt.tiktok.com/ZSbhe3Nox/"];
 app.get('/api/tiktok/video-detail-diff',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await compareTikTokVideoDetailShapes(TIKTOK_VIDEO_BATTERY[8],TIKTOK_VIDEO_BATTERY[9]))}catch(e){res.status(500).json({error:String(e.message||e)})}});
 app.get('/api/tiktok/video-pair',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await inspectTikTokVideoBatch([TIKTOK_VIDEO_BATTERY[8],TIKTOK_VIDEO_BATTERY[9]]))}catch(e){res.status(500).json({ok:false,error:String(e.message||e)})}});
