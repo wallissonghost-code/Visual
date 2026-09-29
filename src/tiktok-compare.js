@@ -510,78 +510,35 @@ export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{})
 export async function observeTikTokQuietly(username,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
   let browser;
-  const shot=async(page,label)=>{
-    const b=await page.screenshot({type:'jpeg',quality:72,fullPage:false});
-    return {label,mime:'image/jpeg',data:'data:image/jpeg;base64,'+b.toString('base64'),url:cleanUrl(page.url()),at:new Date().toISOString()};
-  };
   try{
     browser=await chromium.launch({headless:true});
     const context=await browser.newContext({serviceWorkers:'allow',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1365,height:768},screen:{width:1365,height:768},deviceScaleFactor:1,colorScheme:'light',hasTouch:false,isMobile:false});
     await context.addInitScript(()=>{try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{};try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{};try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{};try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}});
-    const page=await context.newPage(),profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
-    onProgress('open','Entrando no TikTok com a captura técnica ainda desligada…');
-    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
-    await page.waitForTimeout(1800);
-    const screenshots=[];
-    let frameBusy=false;
-    const liveFrame=async(label='AO VIVO')=>{if(frameBusy)return;frameBusy=true;try{const b=await page.screenshot({type:'jpeg',quality:42,fullPage:false});onProgress('frame','data:image/jpeg;base64,'+b.toString('base64'))}catch{}finally{frameBusy=false}};
-    const liveWait=async(ms)=>{const end=Date.now()+ms;while(Date.now()<end){await liveFrame();await page.waitForTimeout(Math.min(1500,Math.max(0,end-Date.now())))}};
-    screenshots.push(await shot(page,'PRINT 1 · perfil abriu'));
-    onProgress('warmup','Print 1 feito. Aquecendo 15 s e fazendo interação mínima…');
-    await liveWait(7000);
-    await page.mouse.move(650,380,{steps:6});
-    await page.waitForTimeout(3500);
-    await page.mouse.wheel(0,180);
-    await liveWait(4500);
-    screenshots.push(await shot(page,'PRINT 2 · após 15 s + interação leve'));
-
-    const events=[];
-    page.on('response',async r=>{
-      if(!isTikTok(r.url()))return;
-      const type=r.request().resourceType();if(!['document','xhr','fetch'].includes(type))return;
-      let body='',bodyError=null,bufferBytes=null,bufferError=null,responseHeaders={};
-      try{responseHeaders=await r.allHeaders()}catch{try{responseHeaders=r.headers()}catch{}}
-      try{const buf=await r.body();bufferBytes=buf.length;body=buf.toString('utf8')}catch(e){bufferError=String(e.message||e);try{body=await r.text()}catch(err){bodyError=String(err.message||err)}}
-      const headers={};for(const k of ['content-length','content-type','content-encoding','transfer-encoding','server','x-cache','via','location','akamai-grn','x-akamai-transformed'])if(responseHeaders?.[k]!=null)headers[k]=responseHeaders[k];
-      events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bufferBytes,bufferError,bodyError,headers,body:body.slice(0,1000000)});
-    });
-    onProgress('capture','Captura técnica ligada. Recarregando a página…');
-    const startedAt=Date.now();
-    const nav=await page.reload({waitUntil:'domcontentloaded',timeout:30000});
-    onProgress('observe','Reload concluído. Observando 20 s sem novas interações…');
-    await liveWait(20000);
-    screenshots.push(await shot(page,'PRINT 3 · captura + reload + 20 s'));
-    onProgress('retry','Procurando o botão Atualizar que o próprio TikTok exibiu…');
-    let retry={found:false,clicked:false,text:null,error:null};
-    try{
-      const candidates=[
-        page.getByRole('button',{name:/atualizar|refresh|retry|tentar novamente/i}),
-        page.getByText(/atualizar|refresh|retry|tentar novamente/i,{exact:true})
-      ];
-      let target=null;
-      for(const c of candidates){if(await c.count()){const first=c.first();if(await first.isVisible().catch(()=>false)){target=first;break}}}
-      if(target){
-        retry.found=true;retry.text=(await target.innerText().catch(()=>''))||null;
-        try{await target.click({timeout:12000})}catch{try{await target.click({force:true,timeout:5000})}catch{await target.evaluate(el=>el.click())}}retry.clicked=true;
-        onProgress('retry-wait','Atualizar clicado. Observando mais 15 s…');
-        await liveWait(15000);
-      }else{
-        onProgress('retry-missing','Botão Atualizar não estava visível nessa etapa.');
-        await liveWait(1500);
-      }
-    }catch(e){retry.error=String(e.message||e);onProgress('retry-error','Falha ao clicar em Atualizar: '+retry.error)}
-    screenshots.push(await shot(page,'PRINT 4 · depois de clicar Atualizar'));
-    const endedAt=Date.now(),html=await page.content(),found=collectProfileVideos(html,user);
-    for(const e of events){const z=collectProfileVideos(e.body,user);found.ids.push(...z.ids);found.links.push(...z.links)}
-    found.ids=[...new Set(found.ids)];found.links=[...new Set(found.links)];
-    const safeEvents=events.map(({body,...x})=>x);
+    const page=await context.newPage(),profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR',screenshots=[],events=[],actions=[];
+    const safeShot=async(label,store=true)=>{try{const b=await Promise.race([page.screenshot({type:'jpeg',quality:store?65:38,fullPage:false,timeout:1800}),new Promise((_,rej)=>setTimeout(()=>rej(new Error('frame-timeout')),2200))]);const data='data:image/jpeg;base64,'+b.toString('base64');if(store)screenshots.push({label,mime:'image/jpeg',data,url:cleanUrl(page.url()),at:new Date().toISOString()});else onProgress('frame',data);return true}catch{return false}};
+    const liveWait=async(ms)=>{const end=Date.now()+ms;while(Date.now()<end){await safeShot('AO VIVO',false);await page.waitForTimeout(Math.min(3000,Math.max(0,end-Date.now())))}};    
+    const clickText=async(name,re,wait=10000)=>{const rec={name,found:false,clicked:false,error:null,at:new Date().toISOString()};try{const cs=[page.getByRole('button',{name:re}),page.getByRole('tab',{name:re}),page.getByText(re,{exact:true})];let t=null;for(const c of cs){if(await c.count()){const z=c.first();if(await z.isVisible().catch(()=>false)){t=z;break}}}if(t){rec.found=true;try{await t.click({timeout:7000})}catch{try{await t.click({force:true,timeout:3000})}catch{await t.evaluate(el=>el.click())}}rec.clicked=true;await liveWait(wait)}}catch(e){rec.error=String(e.message||e)}actions.push(rec);onProgress(name,rec.clicked?name+' clicado; observando…':name+' não clicou'+(rec.error?' · '+rec.error:''));await safeShot('PRINT · '+name);return rec};
+    page.on('response',async r=>{if(!isTikTok(r.url()))return;const type=r.request().resourceType();if(!['document','xhr','fetch'].includes(type))return;let body='',bufferBytes=null,responseHeaders={};try{responseHeaders=await r.allHeaders()}catch{}try{const buf=await r.body();bufferBytes=buf.length;body=buf.toString('utf8')}catch{}const headers={};for(const k of ['content-length','content-type','content-encoding','server','x-cache','location'])if(responseHeaders?.[k]!=null)headers[k]=responseHeaders[k];events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bufferBytes,headers,body:body.slice(0,1000000)})});
+    onProgress('open','Abrindo perfil e iniciando bateria visual de até ~5 min…');
+    const nav=await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});await liveWait(12000);await safeShot('PRINT 1 · perfil inicial');
+    await page.bringToFront().catch(()=>{});
+    const env=await page.evaluate(()=>({hasFocus:document.hasFocus(),visibilityState:document.visibilityState,hidden:document.hidden,webdriver:navigator.webdriver,platform:navigator.platform,userAgent:navigator.userAgent}));
+    actions.push({name:'AMBIENTE',...env});onProgress('environment','Foco '+env.hasFocus+' · visibility '+env.visibilityState+' · webdriver '+String(env.webdriver));
+    await page.mouse.move(620,360,{steps:8}).catch(()=>{});await page.mouse.wheel(0,120).catch(()=>{});await liveWait(8000);
+    await clickText('ATUALIZAR',/atualizar|refresh|retry|tentar novamente/i,15000);
+    await clickText('REPUBLICAÇÕES',/republicaç|reposts?/i,18000);
+    await clickText('VÍDEOS',/^vídeos$|^videos$/i,15000);
+    await clickText('CURTIDOS',/curtidos|liked/i,15000);
+    await clickText('VÍDEOS 2',/^vídeos$|^videos$/i,10000);
+    await clickText('ENTRAR/LOGAR',/^entrar$|^logar$|log in|sign in/i,12000);
+    await safeShot('PRINT · tela após Entrar/Logar');
+    onProgress('reload','Voltando ao perfil e fazendo reload final…');
+    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});await page.reload({waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});await liveWait(20000);await safeShot('PRINT FINAL · perfil após bateria');
+    const endedAt=Date.now(),html=await page.content(),found=collectProfileVideos(html,user);for(const e of events){const z=collectProfileVideos(e.body,user);found.ids.push(...z.ids);found.links.push(...z.links)}found.ids=[...new Set(found.ids)];found.links=[...new Set(found.links)];
+    const postEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/post/item_list/'}catch{return false}}),repostEvents=events.filter(e=>{try{return new URL(e.url).pathname.includes('/api/repost/item_list')}catch{return false}});
+    const summarize=e=>({status:e.status,bytes:e.bytes,bufferBytes:e.bufferBytes,headers:e.headers,path:(()=>{try{return new URL(e.url).pathname}catch{return''}})()});
     const cookies=await context.cookies('https://www.tiktok.com');
-    const postEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/post/item_list/'}catch{return false}});
-    const postTimeline=postEvents.map((e,index)=>{let q={};try{q=Object.fromEntries(new URL(e.url).searchParams.entries())}catch{};return {index:index+1,elapsedMs:e.at-startedAt,status:e.status,bytes:e.bytes,bufferBytes:e.bufferBytes,headers:e.headers,msToken:q.msToken?'present':'empty',msTokenLength:q.msToken?.length||0,xBogus:q['X-Bogus']?'present':'empty',xGnarly:q['X-Gnarly']?'present':'empty',xDynosaur:q['X-Dynosaur']?'present':'empty',region:q.region||null,paramKeys:Object.keys(q).sort()}});
-    const last=postEvents.at(-1);
-    let postBody={parsed:false,bytes:last?.bytes||0,error:last?.body?'invalid-json':'empty-body'};
-    if(last?.body){try{const j=JSON.parse(last.body),arr=Array.isArray(j.itemList)?j.itemList:Array.isArray(j.items)?j.items:[];postBody={parsed:true,bytes:last.bytes,itemCount:arr.length,ids:arr.map(x=>String(x?.id||'')).filter(Boolean),cursor:j.cursor??null,hasMore:j.hasMore??null,statusCode:j.statusCode??j.status_code??null}}catch{}}
-    onProgress('done','3 prints concluídos e captura técnica finalizada.');
-    return {kind:'tiktok-visual-pc-flow',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{warmupMs:15000,observationMs:endedAt-startedAt},screenshots,retry,visible:{htmlBytes:Buffer.byteLength(html),videoIds:found.ids,videoCount:found.ids.length},network:safeEvents,postTimeline,responseBodies:{post:postBody},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Fluxo: abre perfil sem captura técnica, Print 1, espera/interação mínima, Print 2, liga captura, reload, observa 20 s, Print 3, clica no Atualizar real se estiver visível, espera 15 s e faz Print 4. Sem replay ou API fabricada. Segredos de cookies não são exportados.'};
+    onProgress('done','Bateria visual completa finalizada.');
+    return {kind:'tiktok-visual-full-battery',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),environment:env,actions,screenshots,visible:{htmlBytes:Buffer.byteLength(html),videoIds:found.ids,videoCount:found.ids.length},networkSummary:{total:events.length,postItemList:postEvents.map(summarize),repostItemList:repostEvents.map(summarize)},network:events.map(({body,...x})=>x),session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Bateria visual: perfil, foco/visibilidade, interação leve, Atualizar, Republicações, Vídeos, Curtidos, retorno a Vídeos, abertura de Entrar/Logar sem fornecer credenciais, reload final. Frames ao vivo são descartáveis e falhas de screenshot não encerram o teste.'};
   }finally{await browser?.close().catch(()=>{})}
 }
