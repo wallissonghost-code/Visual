@@ -72,20 +72,29 @@ async function replayEmbedProfileList(source,username){
   let st;try{st=JSON.parse(m[1])}catch(e){return {ok:false,error:'FRONTITY_JSON_INVALID: '+e.message}}
   const route=st?.source?.data?.['/embed/@'+username]||{};
   const userId=route?.userInfo?.id||null,ttwid=st?.user?.ttwid||null;
-  const prefix=String(st?.theme?.embedApi||'').replace(/\/$/,'');
-  const base=(prefix&&/^https?:\/\//i.test(prefix)?prefix:'https://www.tiktok.com')+'/embed/api/profile/getItemList';
+  const rawEmbedApi=st?.theme?.embedApi??null;
+  const prefix=String(rawEmbedApi||'').replace(/\/$/,'');
+  const candidates=[];
+  if(prefix){
+    if(/^https?:\/\//i.test(prefix))candidates.push(prefix);
+    else if(prefix.startsWith('//'))candidates.push('https:'+prefix);
+    else if(prefix.startsWith('/'))candidates.push('https://www.tiktok.com'+prefix);
+  }
+  candidates.push('https://www.tiktok.com','https://www.tiktok.com/embed');
+  const prefixes=[...new Set(candidates.map(x=>x.replace(/\/$/,'')))];
   if(!userId||!ttwid)return {ok:false,userId,ttwid,error:'MISSING_USERID_OR_TTWID'};
   const tests=[];
-  for(const count of [10,20,30,50,100]){
+  for(const usedPrefix of prefixes)for(const count of [10,20,50]){
+    const base=usedPrefix+'/embed/api/profile/getItemList';
     const url=base+'?userId='+encodeURIComponent(userId)+'&count='+count;
     try{
       const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept':'application/json, text/plain, */*','accept-language':'pt-BR,pt;q=0.9,en;q=0.8','referer':'https://www.tiktok.com/embed/@'+username,'x-tt-webid':String(ttwid)}});
       const body=await r.text();let j=null;try{j=JSON.parse(body)}catch{}
       const items=Array.isArray(j?.items)?j.items:Array.isArray(j?.itemList)?j.itemList:[];
-      tests.push({count,status:r.status,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),itemCount:items.length,ids:items.map(x=>String(x?.id||x?.itemId||'')).filter(Boolean),keys:j&&typeof j==='object'?Object.keys(j):[],cursor:j?.cursor??j?.maxCursor??null,hasMore:j?.hasMore??j?.has_more??null,error:j?.message||j?.statusMsg||(!body?'EMPTY_BODY':null),preview:body.slice(0,500)});
-    }catch(e){tests.push({count,error:String(e.message||e)})}
+      tests.push({usedPrefix,url,count,status:r.status,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),itemCount:items.length,ids:items.map(x=>String(x?.id||x?.itemId||'')).filter(Boolean),keys:j&&typeof j==='object'?Object.keys(j):[],cursor:j?.cursor??j?.maxCursor??null,hasMore:j?.hasMore??j?.has_more??null,error:j?.message||j?.statusMsg||(!body?'EMPTY_BODY':null),preview:body.slice(0,500)});
+    }catch(e){tests.push({usedPrefix,url,count,error:String(e.message||e)})}
   }
-  return {ok:true,endpoint:base,userId,ttwid,initialEmbedCount:Array.isArray(route?.videoList)?route.videoList.length:0,tests};
+  return {ok:true,rawEmbedApi,themeSiteBaseUrl:st?.theme?.siteBaseUrl??null,prefixes,userId,ttwid,initialEmbedCount:Array.isArray(route?.videoList)?route.videoList.length:0,tests};
 }
 async function probeTikTokEmbed(username){
   const user=String(username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
