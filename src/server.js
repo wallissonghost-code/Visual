@@ -172,13 +172,15 @@ app.get('/api/tiktok/quiet',async(req,res)=>{
   res.setHeader('content-type','application/x-ndjson; charset=utf-8');
   res.setHeader('x-accel-buffering','no');
   res.flushHeaders?.();
-  const send=(type,data={})=>res.write(JSON.stringify({type,...data})+'\n');
+  let closed=false;req.on('close',()=>{closed=true});
+  const send=(type,data={})=>{if(closed||res.writableEnded)return false;try{return res.write(JSON.stringify({type,...data})+'\\n')}catch{return false}};
+  const heartbeat=setInterval(()=>send('heartbeat',{at:Date.now()}),10000);
   try{
     send('progress',{stage:'start',message:'Iniciando navegador…'});
     const result=await observeTikTokQuietly(req.query.username,(stage,message)=>send('progress',{stage,message}));
     send('result',{result});
-    res.end();
-  }catch(e){send('error',{error:String(e.message||e)});res.end()}
+  }catch(e){send('error',{error:String(e.message||e)})}
+  finally{clearInterval(heartbeat);if(!res.writableEnded)res.end()}
 });
 app.get('/api/tiktok/embed-probe',async(req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeTikTokEmbed(req.query.username))}catch(e){res.status(400).json({error:String(e.message||e)})}});
 const TIKTOK_VIDEO_BATTERY=["https://vt.tiktok.com/ZSbYbPdBX/","https://vt.tiktok.com/ZSbYbXBWd/","https://vt.tiktok.com/ZSbYb4NLm/","https://vt.tiktok.com/ZSbYbwUbH/","https://vt.tiktok.com/ZSbYb9oXj/","https://vt.tiktok.com/ZSbYb36jv/","https://vt.tiktok.com/ZSbYbnoUe/","https://vt.tiktok.com/ZSbYb3tTh/","https://vt.tiktok.com/ZSb22UGrD/","https://vt.tiktok.com/ZSbjf9Ubx/","https://vt.tiktok.com/ZSbj5LE1a/","https://vt.tiktok.com/ZSbhd1fYP/","https://vt.tiktok.com/ZSbhe3Nox/"];
