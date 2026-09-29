@@ -505,3 +505,45 @@ export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{})
     onProgress('done','Finalizando relatório…');return {kind:'tiktok-profile-route-inspect',createdAt:new Date().toISOString(),username:user,profileUrl,status:res?.status()||null,profileError,finalUrl:cleanUrl(page.url()),htmlBytes:Buffer.byteLength(html),discoveredVideoIds:found.ids,discoveredVideoLinks:found.links,probes,observedRequests:responses.map(x=>({status:x.status,resourceType:x.resourceType,url:x.url})).slice(0,120),note:'Busca somente evidências públicas observáveis no perfil e nas respostas carregadas pelo navegador.'};
   }finally{await browser?.close().catch(()=>{})}
 }
+
+
+export async function observeTikTokQuietly(username,onProgress=()=>{}){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+  let browser;
+  try{
+    browser=await chromium.launch({headless:true});
+    const context=await browser.newContext({serviceWorkers:'allow'});
+    const page=await context.newPage();
+    const events=[];
+    page.on('response',async r=>{
+      if(!isTikTok(r.url()))return;
+      const type=r.request().resourceType();
+      if(!['document','xhr','fetch'].includes(type))return;
+      let body='',bodyError=null;
+      try{body=await r.text()}catch(e){bodyError=String(e.message||e)}
+      events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bodyError,body:body.slice(0,1000000)});
+    });
+    const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
+    const startedAt=Date.now();
+    onProgress('open','Abrindo @'+user+' uma única vez…');
+    const nav=await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
+    onProgress('quiet','Página abriu. Agora 30 segundos sem tocar em nada.');
+    await page.waitForTimeout(30000);
+    const quietEndedAt=Date.now(),quietHtml=await page.content();
+    const quietFound=collectProfileVideos(quietHtml,user);
+    for(const e of events.filter(x=>x.at<=quietEndedAt)){const z=collectProfileVideos(e.body,user);quietFound.ids.push(...z.ids);quietFound.links.push(...z.links)}
+    quietFound.ids=[...new Set(quietFound.ids)];quietFound.links=[...new Set(quietFound.links)];
+    const quietEvents=events.filter(x=>x.at<=quietEndedAt).map(({body,...x})=>x);
+    onProgress('scroll','30 s concluídos: '+quietFound.ids.length+' ID(s). Fazendo UM scroll normal…');
+    await page.evaluate(()=>window.scrollBy({top:Math.max(500,window.innerHeight*0.85),behavior:'smooth'}));
+    await page.waitForTimeout(8000);
+    const afterHtml=await page.content(),afterFound=collectProfileVideos(afterHtml,user);
+    for(const e of events){const z=collectProfileVideos(e.body,user);afterFound.ids.push(...z.ids);afterFound.links.push(...z.links)}
+    afterFound.ids=[...new Set(afterFound.ids)];afterFound.links=[...new Set(afterFound.links)];
+    const newIds=afterFound.ids.filter(id=>!quietFound.ids.includes(id));
+    const afterEvents=events.filter(x=>x.at>quietEndedAt).map(({body,...x})=>x);
+    const cookies=await context.cookies('https://www.tiktok.com');
+    onProgress('done','Fim. Sem replay e sem requisição fabricada.');
+    return {kind:'tiktok-quiet-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt,afterScrollWaitMs:8000},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},afterOneScroll:{htmlBytes:Buffer.byteLength(afterHtml),videoIds:afterFound.ids,videoCount:afterFound.ids.length,newVideoIds:newIds,network:afterEvents},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Uma única sessão: abriu o perfil, ficou 30 s parada, fez um scroll e observou apenas tráfego criado naturalmente pelo TikTok. Valores de cookies não são exportados.'};
+  }finally{await browser?.close().catch(()=>{})}
+}
