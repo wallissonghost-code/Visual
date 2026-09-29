@@ -61,3 +61,20 @@ if(freshABCBtn)freshABCBtn.onclick=async()=>{
   }catch(e){batteryState.textContent='Falha no teste limpo';batteryDetail.textContent=e.message}
   finally{freshABCBtn.disabled=false}
 };
+
+const repostBtn=document.querySelector('#runTikTokReposts');
+if(repostBtn)repostBtn.onclick=async()=>{
+ const username=String(document.querySelector('#username')?.value||'@notgamesbr').trim()||'@notgamesbr';
+ repostBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Capturando republicados…';batteryDetail.textContent=username+' · abrindo Republicações';batteryResults.innerHTML='';
+ try{
+  const r=await fetch('/api/tiktok/reposts?username='+encodeURIComponent(username)+'&ts='+Date.now(),{cache:'no-store'});
+  const x=await r.json();if(!r.ok)throw Error(x.error||('HTTP '+r.status));
+  batteryState.textContent='Republicados capturados';batteryDetail.textContent=(x.itemCount||0)+' vídeos · '+(x.captureCount||0)+' respostas da rota';
+  const esc=v=>String(v??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const rows=(x.items||[]).map((v,i)=>'<div class="batteryRow"><b>#'+(i+1)+' · '+esc(v.id)+'</b><span>👁 '+(v.views??'-')+' ♥ '+(v.likes??'-')+' 💬 '+(v.comments??'-')+' ↗ '+(v.shares??'-')+' 🔖 '+(v.saves??'-')+'</span><small>@'+esc(v.author||'-')+(v.desc?' · '+esc(v.desc).slice(0,180):'')+'</small></div>').join('');
+  const caps=(x.captures||[]).map((v,i)=>'<div class="batteryRow"><b>REPOST API #'+(i+1)+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes</span><small>'+v.itemCount+' itens na resposta</small></div>').join('');
+  batteryResults.innerHTML=rows||caps||'<div class="batteryRow"><b>NENHUM REPUBLICADO CAPTURADO</b><small>A rota não entregou itens nesta sessão.</small></div>';
+  lastResult=x;setBatteryShare(x);
+ }catch(e){batteryState.textContent='Falha ao capturar republicados';batteryDetail.textContent=e.message}
+ finally{repostBtn.disabled=false}
+};
