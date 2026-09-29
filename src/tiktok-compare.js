@@ -574,3 +574,30 @@ export async function freshTikTokScreenshot(username,target='profile'){
   if(!targets[target])throw new Error('Target inválido.');
   return freshShotTarget(targets[target]);
 }
+
+export async function captureTikTokReposts(username){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+  let browser,context;
+  try{
+    browser=await chromium.launch({headless:true});
+    context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR'});
+    const page=await context.newPage(),captures=[];
+    page.on('response',async r=>{try{
+      const u=new URL(r.url());if(!u.pathname.includes('/api/repost/item_list'))return;
+      const body=await r.body();let json=null;try{json=JSON.parse(body.toString('utf8'))}catch{}
+      captures.push({url:cleanUrl(r.url()),status:r.status(),bytes:body.length,json});
+    }catch{}});
+    await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR',{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
+    await page.waitForTimeout(4000);
+    const tabs=page.locator('button,[role=tab],a,div,span');
+    const hit=await tabs.evaluateAll((els)=>{const e=els.find(x=>/^(republicações|republicacoes|reposts?)$/i.test((x.innerText||x.textContent||'').trim())&&x.getBoundingClientRect().width>0&&x.getBoundingClientRect().height>0);if(!e)return false;e.setAttribute('data-repost-capture','1');return true}).catch(()=>false);
+    if(hit){const z=page.locator('[data-repost-capture="1"]').first();await z.click({force:true,timeout:2000}).catch(()=>z.evaluate(el=>el.click()).catch(()=>{}));}
+    await page.waitForTimeout(8000);
+    const items=[],seen=new Set();
+    for(const c of captures)for(const it of c.json?.itemList||[]){
+      const id=String(it?.id||'');if(!id||seen.has(id))continue;seen.add(id);
+      const st=it.stats||{};items.push({id,author:it.author?.uniqueId||null,desc:it.desc||'',views:st.playCount??null,likes:st.diggCount??null,comments:st.commentCount??null,shares:st.shareCount??null,saves:st.collectCount??null});
+    }
+    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:hit,captureCount:captures.length,captures:captures.map(x=>({status:x.status,bytes:x.bytes,itemCount:x.json?.itemList?.length??0})),itemCount:items.length,items};
+  }finally{await context?.close().catch(()=>{});await browser?.close().catch(()=>{})}
+}
