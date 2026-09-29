@@ -543,3 +543,17 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     return {kind:'tiktok-visual-full-battery',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),environment:env,actions,screenshots,visible:{htmlBytes:Buffer.byteLength(html),videoIds:found.ids,videoCount:found.ids.length},networkSummary:{total:events.length,postItemList:postEvents.map(summarize),repostItemList:repostEvents.map(summarize)},f12Search:{matchCount:f12Matches.length,matches:f12Matches.slice(0,200)},network:events.map(({body,...x})=>x),session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Bateria visual: perfil, foco/visibilidade, interação leve, Atualizar, Republicações, Vídeos, Curtidos, retorno a Vídeos, abertura de Entrar/Logar sem fornecer credenciais, reload final. Frames ao vivo são descartáveis e falhas de screenshot não encerram o teste.'};
   }finally{await browser?.close().catch(()=>{})}
 }
+
+export async function freshTikTokScreenshot(username){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+  let browser,context;
+  try{
+    browser=await chromium.launch({headless:true});
+    context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo'});
+    await context.clearCookies();
+    const page=await context.newPage();
+    await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000});
+    await page.waitForTimeout(5000);
+    return await page.screenshot({type:'jpeg',quality:78,fullPage:false,timeout:5000});
+  }finally{await context?.close().catch(()=>{});await browser?.close().catch(()=>{})}
+}
