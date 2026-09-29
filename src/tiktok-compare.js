@@ -575,6 +575,27 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     const postEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/post/item_list/'}catch{return false}});
     const repostEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/repost/item_list/'}catch{return false}});
     const post=summarizeReq(postEvents.at(-1)),repost=summarizeReq(repostEvents.at(-1));
+    const summarizeListBody=(e)=>{
+      if(!e||!e.body)return {parsed:false,bytes:e?.bytes||0,error:'empty-body'};
+      try{
+        const j=JSON.parse(e.body);
+        const arr=Array.isArray(j.itemList)?j.itemList:Array.isArray(j.items)?j.items:Array.isArray(j.item_list)?j.item_list:[];
+        const items=arr.slice(0,50).map(x=>({
+          id:String(x?.id??x?.aweme_id??x?.itemId??'')||null,
+          author:x?.author?.uniqueId??x?.author?.unique_id??x?.author?.nickname??x?.authorUniqueId??null,
+          stats:x?.stats?{
+            playCount:x.stats.playCount??x.stats.play_count??null,
+            diggCount:x.stats.diggCount??x.stats.digg_count??null,
+            commentCount:x.stats.commentCount??x.stats.comment_count??null,
+            shareCount:x.stats.shareCount??x.stats.share_count??null,
+            collectCount:x.stats.collectCount??x.stats.collect_count??null
+          }:null
+        }));
+        return {parsed:true,bytes:e.bytes,topLevelKeys:Object.keys(j).slice(0,40),itemArrayKey:Array.isArray(j.itemList)?'itemList':Array.isArray(j.items)?'items':Array.isArray(j.item_list)?'item_list':null,itemCount:arr.length,items,cursor:j.cursor??j.maxCursor??j.max_cursor??null,hasMore:j.hasMore??j.has_more??null,statusCode:j.statusCode??j.status_code??null,statusMsg:j.statusMsg??j.status_msg??null};
+      }catch(err){return {parsed:false,bytes:e.bytes,error:String(err.message||err),prefix:e.body.slice(0,180)}}
+    };
+    const repostBodySummary=summarizeListBody(repostEvents.at(-1));
+    const postBodySummary=summarizeListBody(postEvents.at(-1));
     let requestComparison=null;
     if(post&&repost){
       const keys=[...new Set([...Object.keys(post.params),...Object.keys(repost.params)])].sort();
@@ -588,6 +609,6 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
       onProgress('compare','Comparado post × repost: '+Object.keys(different).length+' parâmetro(s) diferente(s), '+Object.keys(onlyPost).length+' só no post, '+Object.keys(onlyRepost).length+' só no repost.');
     }else onProgress('compare','Comparação incompleta: post='+Boolean(post)+' repost='+Boolean(repost)+'.');
     onProgress('done','Fim. Sem replay e sem requisição fabricada.');
-    return {kind:'tiktok-quiet-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt,afterScrollWaitMs:8000},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},afterOneScroll:{htmlBytes:Buffer.byteLength(afterHtml),videoIds:afterFound.ids,videoCount:afterFound.ids.length,newVideoIds:newIds,network:afterEvents},requestComparison,session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Uma única sessão: abriu o perfil, ficou 30 s parada, fez um scroll e observou apenas tráfego criado naturalmente pelo TikTok. Valores de cookies não são exportados.'};
+    return {kind:'tiktok-quiet-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt,afterScrollWaitMs:8000},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},afterOneScroll:{htmlBytes:Buffer.byteLength(afterHtml),videoIds:afterFound.ids,videoCount:afterFound.ids.length,newVideoIds:newIds,network:afterEvents},requestComparison,responseBodies:{post:postBodySummary,repost:repostBodySummary},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Uma única sessão: abriu o perfil, ficou 30 s parada, fez um scroll e observou apenas tráfego criado naturalmente pelo TikTok. Valores de cookies não são exportados.'};
   }finally{await browser?.close().catch(()=>{})}
 }
