@@ -551,9 +551,14 @@ async function freshShotTarget(target){
     context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo'});
     await context.clearCookies();
     const page=await context.newPage();
-    await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000});
+    await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000}).catch(()=>null);
     await page.waitForTimeout(5000);
-    return await page.screenshot({type:'jpeg',quality:78,fullPage:false,timeout:5000});
+    const shot=await Promise.race([
+      page.screenshot({type:'jpeg',quality:78,fullPage:false}).catch(()=>null),
+      new Promise(resolve=>setTimeout(()=>resolve(null),3500))
+    ]);
+    if(!shot)throw new Error('SCREENSHOT_TIMEOUT');
+    return shot;
   }finally{await context?.close().catch(()=>{});await browser?.close().catch(()=>{})}
 }
 export async function freshTikTokScreenshot(username,target='profile'){
