@@ -560,7 +560,34 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     const newIds=afterFound.ids.filter(id=>!quietFound.ids.includes(id));
     const afterEvents=events.filter(x=>x.at>quietEndedAt).map(({body,...x})=>x);
     const cookies=await context.cookies('https://www.tiktok.com');
+    const summarizeReq=(e)=>{
+      if(!e)return null;
+      let u;try{u=new URL(e.url)}catch{return null}
+      const q=Object.fromEntries(u.searchParams.entries());
+      const tokenState={
+        msToken:q.msToken?'present':'empty',
+        xBogus:q['X-Bogus']?'present':'empty',
+        xGnarly:q['X-Gnarly']?'present':'empty',
+        xDynosaur:q['X-Dynosaur']?'present':'empty'
+      };
+      return {status:e.status,bytes:e.bytes,at:e.at,path:u.pathname,params:q,tokenState};
+    };
+    const postEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/post/item_list/'}catch{return false}});
+    const repostEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/repost/item_list/'}catch{return false}});
+    const post=summarizeReq(postEvents.at(-1)),repost=summarizeReq(repostEvents.at(-1));
+    let requestComparison=null;
+    if(post&&repost){
+      const keys=[...new Set([...Object.keys(post.params),...Object.keys(repost.params)])].sort();
+      const same={},different={},onlyPost={},onlyRepost={};
+      for(const k of keys){
+        const a=post.params[k],b=repost.params[k];
+        if(a!==undefined&&b!==undefined){if(a===b)same[k]=a;else different[k]={post:a,repost:b}}
+        else if(a!==undefined)onlyPost[k]=a;else onlyRepost[k]=b;
+      }
+      requestComparison={post:{status:post.status,bytes:post.bytes,at:post.at,tokenState:post.tokenState},repost:{status:repost.status,bytes:repost.bytes,at:repost.at,tokenState:repost.tokenState},sameParams:same,differentParams:different,onlyPostParams:onlyPost,onlyRepostParams:onlyRepost};
+      onProgress('compare','Comparado post × repost: '+Object.keys(different).length+' parâmetro(s) diferente(s), '+Object.keys(onlyPost).length+' só no post, '+Object.keys(onlyRepost).length+' só no repost.');
+    }else onProgress('compare','Comparação incompleta: post='+Boolean(post)+' repost='+Boolean(repost)+'.');
     onProgress('done','Fim. Sem replay e sem requisição fabricada.');
-    return {kind:'tiktok-quiet-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt,afterScrollWaitMs:8000},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},afterOneScroll:{htmlBytes:Buffer.byteLength(afterHtml),videoIds:afterFound.ids,videoCount:afterFound.ids.length,newVideoIds:newIds,network:afterEvents},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Uma única sessão: abriu o perfil, ficou 30 s parada, fez um scroll e observou apenas tráfego criado naturalmente pelo TikTok. Valores de cookies não são exportados.'};
+    return {kind:'tiktok-quiet-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt,afterScrollWaitMs:8000},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},afterOneScroll:{htmlBytes:Buffer.byteLength(afterHtml),videoIds:afterFound.ids,videoCount:afterFound.ids.length,newVideoIds:newIds,network:afterEvents},requestComparison,session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Uma única sessão: abriu o perfil, ficou 30 s parada, fez um scroll e observou apenas tráfego criado naturalmente pelo TikTok. Valores de cookies não são exportados.'};
   }finally{await browser?.close().catch(()=>{})}
 }
