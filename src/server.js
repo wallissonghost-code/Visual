@@ -38,7 +38,16 @@ async function probeTikTokEmbed(username){
   }
   const allNumeric=[...new Set(attempts.flatMap(a=>a.numericIdCandidates||[]))];
   const details=attempts.flatMap(a=>a.idDetails||[]).filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
-  return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),details,allNumericCandidateCount:allNumeric.length,allNumericCandidates:allNumeric,attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
+  const numericCandidates=allNumeric.map(id=>{
+    const confirmedVideo=ids.has(id);
+    const evidence=[];
+    for(const a of attempts){
+      if(!a.numericIdCandidates?.includes(id))continue;
+      evidence.push({source:a.name,confirmedVideo});
+    }
+    return {id,classification:confirmedVideo?'VIDEO_CONFIRMADO':'NAO_CLASSIFICADO',evidence};
+  });
+  return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),details,allNumericCandidateCount:allNumeric.length,allNumericCandidates:allNumeric,numericCandidates,attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
 }
 app.get('/api/tiktok/embed-probe',async(req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeTikTokEmbed(req.query.username))}catch(e){res.status(400).json({error:String(e.message||e)})}});
 const TIKTOK_VIDEO_BATTERY=["https://vt.tiktok.com/ZSbYbPdBX/","https://vt.tiktok.com/ZSbYbXBWd/","https://vt.tiktok.com/ZSbYb4NLm/","https://vt.tiktok.com/ZSbYbwUbH/","https://vt.tiktok.com/ZSbYb9oXj/","https://vt.tiktok.com/ZSbYb36jv/","https://vt.tiktok.com/ZSbYbnoUe/","https://vt.tiktok.com/ZSbYb3tTh/","https://vt.tiktok.com/ZSb22UGrD/","https://vt.tiktok.com/ZSbjf9Ubx/","https://vt.tiktok.com/ZSbj5LE1a/","https://vt.tiktok.com/ZSbhd1fYP/","https://vt.tiktok.com/ZSbhe3Nox/"];
