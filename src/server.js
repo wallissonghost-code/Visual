@@ -17,7 +17,18 @@ async function probeTikTokEmbed(username){
       if(x.name==='OEMBED_OFICIAL'){try{const j=JSON.parse(body);source=body+'\n'+String(j.html||'')}catch{}}
       for(const m of source.matchAll(/(?:video\/|data-video-id=[\"'])(\d{8,})/g))ids.add(m[1]);
       for(const m of source.matchAll(/https?:\\?\/\\?\/(?:www\\?\.)?tiktok\\?\.com\\?\/@[^\s\"'<>]+?\\?\/video\\?\/(\d{8,})/g)){ids.add(m[1]);links.add('https://www.tiktok.com/@'+user+'/video/'+m[1])}
-      const numericIds=[...new Set([...source.matchAll(/\b(\d{18,20})\b/g)].map(m=>m[1]))];
+      const numericMatches=[...source.matchAll(/\b(\d{18,20})\b/g)];
+      const numericIds=[...new Set(numericMatches.map(m=>m[1]))];
+      const numericContexts=numericIds.map(id=>{
+        const positions=numericMatches.filter(m=>m[1]===id).slice(0,4).map(m=>m.index);
+        const contexts=positions.map(pos=>source.slice(Math.max(0,pos-180),Math.min(source.length,pos+id.length+260)).replace(/\s+/g,' '));
+        const joined=contexts.join(' ');
+        const hints=[];
+        if(/\/video\/|videoId|itemId|aweme/i.test(joined))hints.push('VIDEO');
+        if(/authorId|userId|uid|secUid|uniqueId|author/i.test(joined))hints.push('USER');
+        if(/musicId|music/i.test(joined))hints.push('MUSIC');
+        return {id,occurrences:positions.length,contexts,hints:[...new Set(hints)]};
+      });
       const idDetails=[...ids].map(id=>{
         const pos=source.indexOf(id),chunk=pos>=0?source.slice(Math.max(0,pos-2500),Math.min(source.length,pos+6000)):'';
         const pick=re=>{const m=chunk.match(re);return m?.[1]??null};
@@ -33,7 +44,7 @@ async function probeTikTokEmbed(username){
           cover:pick(/"(?:cover|originCover|dynamicCover)"\s*:\s*"([^"]+)"/i)
         };
       });
-      attempts.push({name:x.name,status:r.status,finalUrl:r.url,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),ids:[...ids],numericIdCandidates:numericIds.slice(0,120),numericIdCandidateCount:numericIds.length,idDetails});
+      attempts.push({name:x.name,status:r.status,finalUrl:r.url,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),ids:[...ids],numericIdCandidates:numericIds.slice(0,120),numericIdCandidateCount:numericIds.length,numericContexts:numericContexts.slice(0,120),idDetails});
     }catch(e){attempts.push({name:x.name,error:String(e.message||e),ids:[]})}
   }
   const allNumeric=[...new Set(attempts.flatMap(a=>a.numericIdCandidates||[]))];
@@ -41,11 +52,16 @@ async function probeTikTokEmbed(username){
   const numericCandidates=allNumeric.map(id=>{
     const confirmedVideo=ids.has(id);
     const evidence=[];
+    const hints=new Set();const contexts=[];
     for(const a of attempts){
       if(!a.numericIdCandidates?.includes(id))continue;
-      evidence.push({source:a.name,confirmedVideo});
+      const ctx=a.numericContexts?.find(x=>x.id===id);
+      for(const h of ctx?.hints||[])hints.add(h);
+      contexts.push(...(ctx?.contexts||[]).slice(0,2));
+      evidence.push({source:a.name,confirmedVideo,hints:ctx?.hints||[]});
     }
-    return {id,classification:confirmedVideo?'VIDEO_CONFIRMADO':'NAO_CLASSIFICADO',evidence};
+    const classification=confirmedVideo?'VIDEO_CONFIRMADO':hints.has('USER')&&!hints.has('VIDEO')?'PROVAVEL_USER_ID':hints.has('MUSIC')&&!hints.has('VIDEO')?'PROVAVEL_MUSIC_ID':hints.has('VIDEO')?'POSSIVEL_VIDEO':'NAO_CLASSIFICADO';
+    return {id,classification,hints:[...hints],contexts:contexts.slice(0,3),evidence};
   });
   return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),details,allNumericCandidateCount:allNumeric.length,allNumericCandidates:allNumeric,numericCandidates,attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
 }
