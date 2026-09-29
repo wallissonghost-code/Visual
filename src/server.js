@@ -42,7 +42,7 @@ function inspectEmbedStructuredState(source,videoIds){
 async function inspectEmbedClientScripts(source){
   const srcs=[...source.matchAll(/<script[^>]+src=["']([^"']+)["'][^>]*>/gi)].map(m=>m[1].replace(/&amp;/g,'&'));
   const unique=[...new Set(srcs)].slice(0,30), results=[];
-  const needles=['autoFetch','videoList','playCount','page','cursor','hasMore','offset','pagination','creator_embed','proxyApi'];
+  const needles=['autoFetch','videoList','playCount','page','cursor','hasMore','offset','pagination','creator_embed','proxyApi','getProfileItemList','x-tt-webid','/api/post/item_list/','/api/recommend/embed_videos/'];
   for(const raw of unique){
     let url=raw;
     if(url.startsWith('//'))url='https:'+url;
@@ -56,7 +56,12 @@ async function inspectEmbedClientScripts(source){
         for(let i=0;i<3;i++){const p=body.indexOf(n,from);if(p<0)break;contexts.push({needle:n,context:body.slice(Math.max(0,p-500),Math.min(body.length,p+n.length+900)).replace(/\s+/g,' ')});from=p+n.length}
       }
       const endpoints=[...new Set([...body.matchAll(/["'`](\/[^"'\`]{1,180}(?:video|embed|item|post|list|feed)[^"'\`]{0,180})["'`]/gi)].map(m=>m[1]))].slice(0,60);
-      if(hits.length||endpoints.length)results.push({url:r.url,status:r.status,bytes:Buffer.byteLength(body),hits,contexts:contexts.slice(0,20),endpointCandidates:endpoints});
+      const profileListCalls=[];
+      for(const needle of ['getProfileItemList','x-tt-webid','/api/post/item_list/']){
+        let from=0;
+        for(let i=0;i<12;i++){const p=body.indexOf(needle,from);if(p<0)break;profileListCalls.push({needle,index:p,context:body.slice(Math.max(0,p-1800),Math.min(body.length,p+needle.length+3200)).replace(/\s+/g,' ')});from=p+needle.length}
+      }
+      if(hits.length||endpoints.length||profileListCalls.length)results.push({url:r.url,status:r.status,bytes:Buffer.byteLength(body),hits,contexts:contexts.slice(0,30),endpointCandidates:endpoints,profileListCalls:profileListCalls.slice(0,30)});
     }catch(e){results.push({url,error:String(e.message||e)})}
   }
   return {scriptCount:unique.length,scripts:results};
