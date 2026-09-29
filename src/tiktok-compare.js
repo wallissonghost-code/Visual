@@ -510,116 +510,55 @@ export async function inspectTikTokProfile(username,urlA,urlB,onProgress=()=>{})
 export async function observeTikTokQuietly(username,onProgress=()=>{}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
   let browser;
+  const shot=async(page,label)=>{
+    const b=await page.screenshot({type:'jpeg',quality:72,fullPage:false});
+    return {label,mime:'image/jpeg',data:'data:image/jpeg;base64,'+b.toString('base64'),url:cleanUrl(page.url()),at:new Date().toISOString()};
+  };
   try{
     browser=await chromium.launch({headless:true});
-    const context=await browser.newContext({
-      serviceWorkers:'allow',
-      userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
-      locale:'pt-BR',
-      timezoneId:'America/Sao_Paulo',
-      viewport:{width:1365,height:768},
-      screen:{width:1365,height:768},
-      deviceScaleFactor:1,
-      colorScheme:'light',
-      hasTouch:false,
-      isMobile:false
-    });
-    await context.addInitScript(()=>{
-      try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{}
-      try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{}
-      try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{}
-      try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}
-    });
-    const page=await context.newPage();
+    const context=await browser.newContext({serviceWorkers:'allow',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1365,height:768},screen:{width:1365,height:768},deviceScaleFactor:1,colorScheme:'light',hasTouch:false,isMobile:false});
+    await context.addInitScript(()=>{try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{};try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{};try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{};try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}});
+    const page=await context.newPage(),profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
+    onProgress('open','Entrando no TikTok com a captura técnica ainda desligada…');
+    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
+    await page.waitForTimeout(1800);
+    const screenshots=[];
+    screenshots.push(await shot(page,'PRINT 1 · perfil abriu'));
+    onProgress('warmup','Print 1 feito. Aquecendo 15 s e fazendo interação mínima…');
+    await page.waitForTimeout(7000);
+    await page.mouse.move(650,380,{steps:6});
+    await page.waitForTimeout(3500);
+    await page.mouse.wheel(0,180);
+    await page.waitForTimeout(4500);
+    screenshots.push(await shot(page,'PRINT 2 · após 15 s + interação leve'));
+
     const events=[];
     page.on('response',async r=>{
       if(!isTikTok(r.url()))return;
-      const type=r.request().resourceType();
-      if(!['document','xhr','fetch'].includes(type))return;
-      let body='',bodyError=null,bufferBytes=null,bufferError=null;
-      let responseHeaders={};
+      const type=r.request().resourceType();if(!['document','xhr','fetch'].includes(type))return;
+      let body='',bodyError=null,bufferBytes=null,bufferError=null,responseHeaders={};
       try{responseHeaders=await r.allHeaders()}catch{try{responseHeaders=r.headers()}catch{}}
-      try{
-        const buf=await r.body();
-        bufferBytes=buf.length;
-        body=buf.toString('utf8');
-      }catch(e){
-        bufferError=String(e.message||e);
-        try{body=await r.text()}catch(err){bodyError=String(err.message||err)}
-      }
-      const pickHeaders={};
-      for(const k of ['content-length','content-type','content-encoding','transfer-encoding','server','x-cache','via','location','akamai-grn','x-akamai-transformed']){
-        if(responseHeaders?.[k]!=null)pickHeaders[k]=responseHeaders[k];
-      }
-      events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bufferBytes,bufferError,bodyError,headers:pickHeaders,body:body.slice(0,1000000)});
+      try{const buf=await r.body();bufferBytes=buf.length;body=buf.toString('utf8')}catch(e){bufferError=String(e.message||e);try{body=await r.text()}catch(err){bodyError=String(err.message||err)}}
+      const headers={};for(const k of ['content-length','content-type','content-encoding','transfer-encoding','server','x-cache','via','location','akamai-grn','x-akamai-transformed'])if(responseHeaders?.[k]!=null)headers[k]=responseHeaders[k];
+      events.push({at:Date.now(),status:r.status(),type,url:cleanUrl(r.url()),bytes:Buffer.byteLength(body),bufferBytes,bufferError,bodyError,headers,body:body.slice(0,1000000)});
     });
-    const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
-    onProgress('open','Monitoramento armado antes da navegação (equivalente ao F12/Network aberto). Entrando em @'+user+'…');
-    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
-    await page.waitForTimeout(1200);
-    events.length=0;
+    onProgress('capture','Captura técnica ligada. Recarregando a página…');
     const startedAt=Date.now();
-    onProgress('reload','Recarregando a página agora, igual ao teste manual do PC…');
     const nav=await page.reload({waitUntil:'domcontentloaded',timeout:30000});
-    onProgress('quiet','Reload concluído. Esperando 20 segundos sem clicar e sem scroll.');
+    onProgress('observe','Reload concluído. Observando 20 s sem novas interações…');
     await page.waitForTimeout(20000);
-    const quietEndedAt=Date.now(),quietHtml=await page.content();
-    const quietFound=collectProfileVideos(quietHtml,user);
-    for(const e of events.filter(x=>x.at<=quietEndedAt)){const z=collectProfileVideos(e.body,user);quietFound.ids.push(...z.ids);quietFound.links.push(...z.links)}
-    quietFound.ids=[...new Set(quietFound.ids)];quietFound.links=[...new Set(quietFound.links)];
-    const quietEvents=events.filter(x=>x.at<=quietEndedAt).map(({body,...x})=>x);
-    onProgress('observe','20 s após o reload: '+quietFound.ids.length+' ID(s). Nenhum scroll/click foi feito.');
+    screenshots.push(await shot(page,'PRINT 3 · captura + reload + 20 s'));
+    const endedAt=Date.now(),html=await page.content(),found=collectProfileVideos(html,user);
+    for(const e of events){const z=collectProfileVideos(e.body,user);found.ids.push(...z.ids);found.links.push(...z.links)}
+    found.ids=[...new Set(found.ids)];found.links=[...new Set(found.links)];
+    const safeEvents=events.map(({body,...x})=>x);
     const cookies=await context.cookies('https://www.tiktok.com');
-    const summarizeReq=(e)=>{
-      if(!e)return null;
-      let u;try{u=new URL(e.url)}catch{return null}
-      const q=Object.fromEntries(u.searchParams.entries());
-      const tokenState={
-        msToken:q.msToken?'present':'empty',
-        xBogus:q['X-Bogus']?'present':'empty',
-        xGnarly:q['X-Gnarly']?'present':'empty',
-        xDynosaur:q['X-Dynosaur']?'present':'empty'
-      };
-      return {status:e.status,bytes:e.bytes,at:e.at,path:u.pathname,params:q,tokenState};
-    };
     const postEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/post/item_list/'}catch{return false}});
-    const repostEvents=events.filter(e=>{try{return new URL(e.url).pathname==='/api/repost/item_list/'}catch{return false}});
-    const post=summarizeReq(postEvents.at(-1)),repost=summarizeReq(repostEvents.at(-1));
-    const summarizeListBody=(e)=>{
-      if(!e||!e.body)return {parsed:false,bytes:e?.bytes||0,error:'empty-body'};
-      try{
-        const j=JSON.parse(e.body);
-        const arr=Array.isArray(j.itemList)?j.itemList:Array.isArray(j.items)?j.items:Array.isArray(j.item_list)?j.item_list:[];
-        const items=arr.slice(0,50).map(x=>({
-          id:String(x?.id??x?.aweme_id??x?.itemId??'')||null,
-          author:x?.author?.uniqueId??x?.author?.unique_id??x?.author?.nickname??x?.authorUniqueId??null,
-          stats:x?.stats?{
-            playCount:x.stats.playCount??x.stats.play_count??null,
-            diggCount:x.stats.diggCount??x.stats.digg_count??null,
-            commentCount:x.stats.commentCount??x.stats.comment_count??null,
-            shareCount:x.stats.shareCount??x.stats.share_count??null,
-            collectCount:x.stats.collectCount??x.stats.collect_count??null
-          }:null
-        }));
-        return {parsed:true,bytes:e.bytes,topLevelKeys:Object.keys(j).slice(0,40),itemArrayKey:Array.isArray(j.itemList)?'itemList':Array.isArray(j.items)?'items':Array.isArray(j.item_list)?'item_list':null,itemCount:arr.length,items,cursor:j.cursor??j.maxCursor??j.max_cursor??null,hasMore:j.hasMore??j.has_more??null,statusCode:j.statusCode??j.status_code??null,statusMsg:j.statusMsg??j.status_msg??null};
-      }catch(err){return {parsed:false,bytes:e.bytes,error:String(err.message||err),prefix:e.body.slice(0,180)}}
-    };
-    const postTimeline=postEvents.map((e,index)=>{const r=summarizeReq(e);return {index:index+1,elapsedMs:e.at-startedAt,status:e.status,bytes:e.bytes,msToken:r?.params?.msToken?'present':'empty',msTokenLength:r?.params?.msToken?.length||0,xBogus:r?.params?.['X-Bogus']?'present':'empty',xGnarly:r?.params?.['X-Gnarly']?'present':'empty',xDynosaur:r?.params?.['X-Dynosaur']?'present':'empty',paramKeys:Object.keys(r?.params||{}).sort()}});
-    const repostBodySummary=summarizeListBody(repostEvents.at(-1));
-    const postBodySummary=summarizeListBody(postEvents.at(-1));
-    let requestComparison=null;
-    if(post&&repost){
-      const keys=[...new Set([...Object.keys(post.params),...Object.keys(repost.params)])].sort();
-      const same={},different={},onlyPost={},onlyRepost={};
-      for(const k of keys){
-        const a=post.params[k],b=repost.params[k];
-        if(a!==undefined&&b!==undefined){if(a===b)same[k]=a;else different[k]={post:a,repost:b}}
-        else if(a!==undefined)onlyPost[k]=a;else onlyRepost[k]=b;
-      }
-      requestComparison={post:{status:post.status,bytes:post.bytes,at:post.at,tokenState:post.tokenState},repost:{status:repost.status,bytes:repost.bytes,at:repost.at,tokenState:repost.tokenState},sameParams:same,differentParams:different,onlyPostParams:onlyPost,onlyRepostParams:onlyRepost};
-      onProgress('compare','Comparado post × repost: '+Object.keys(different).length+' parâmetro(s) diferente(s), '+Object.keys(onlyPost).length+' só no post, '+Object.keys(onlyRepost).length+' só no repost.');
-    }else onProgress('compare','Comparação incompleta: post='+Boolean(post)+' repost='+Boolean(repost)+'.');
-    onProgress('done','Fim. Sem replay e sem requisição fabricada.');
-    return {kind:'tiktok-pc-style-observation',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{quietMs:quietEndedAt-startedAt},quiet:{htmlBytes:Buffer.byteLength(quietHtml),videoIds:quietFound.ids,videoCount:quietFound.ids.length,network:quietEvents},postTimeline,requestComparison,responseBodies:{post:postBodySummary,repost:repostBodySummary},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Imita o teste manual do PC: monitoramento de rede armado antes, abre o TikTok/perfil, recarrega a página e espera 20 s. Zero scroll, zero click, zero replay e zero requisição fabricada. Eventos anteriores ao reload são descartados. Valores de cookies não são exportados.'};
+    const postTimeline=postEvents.map((e,index)=>{let q={};try{q=Object.fromEntries(new URL(e.url).searchParams.entries())}catch{};return {index:index+1,elapsedMs:e.at-startedAt,status:e.status,bytes:e.bytes,bufferBytes:e.bufferBytes,headers:e.headers,msToken:q.msToken?'present':'empty',msTokenLength:q.msToken?.length||0,xBogus:q['X-Bogus']?'present':'empty',xGnarly:q['X-Gnarly']?'present':'empty',xDynosaur:q['X-Dynosaur']?'present':'empty',region:q.region||null,paramKeys:Object.keys(q).sort()}});
+    const last=postEvents.at(-1);
+    let postBody={parsed:false,bytes:last?.bytes||0,error:last?.body?'invalid-json':'empty-body'};
+    if(last?.body){try{const j=JSON.parse(last.body),arr=Array.isArray(j.itemList)?j.itemList:Array.isArray(j.items)?j.items:[];postBody={parsed:true,bytes:last.bytes,itemCount:arr.length,ids:arr.map(x=>String(x?.id||'')).filter(Boolean),cursor:j.cursor??null,hasMore:j.hasMore??null,statusCode:j.statusCode??j.status_code??null}}catch{}}
+    onProgress('done','3 prints concluídos e captura técnica finalizada.');
+    return {kind:'tiktok-visual-pc-flow',createdAt:new Date().toISOString(),username:user,profileUrl,status:nav?.status()||null,finalUrl:cleanUrl(page.url()),timing:{warmupMs:15000,observationMs:endedAt-startedAt},screenshots,visible:{htmlBytes:Buffer.byteLength(html),videoIds:found.ids,videoCount:found.ids.length},network:safeEvents,postTimeline,responseBodies:{post:postBody},session:{cookieNames:[...new Set(cookies.map(c=>c.name))],cookieCount:cookies.length},note:'Fluxo: abre perfil sem captura técnica, Print 1, espera/interação mínima, Print 2, liga captura, reload, observa 20 s, Print 3. Sem replay ou API fabricada. Segredos de cookies não são exportados.'};
   }finally{await browser?.close().catch(()=>{})}
 }
