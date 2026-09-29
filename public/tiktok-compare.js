@@ -23,3 +23,21 @@ const fr=st.frontity||{},pag=(fr.paginationHits||[]).map(v=>'<div class="battery
 const arrays=(fr.videoArrays||[]).map(v=>'<div class="batteryRow"><b>ARRAY DE VÍDEOS</b><span>'+v.path+' · '+v.length+' itens</span><small>chaves: '+(v.itemKeys||[]).join(', ')+'</small></div>').join('');
 const routes=(fr.routeCandidates||[]).map(v=>'<div class="batteryRow"><b>ROTA FRONTITY</b><span>'+v.key+'</span><small>'+v.path+' · chaves: '+(v.keys||[]).join(', ')+'</small></div>').join('');
 batteryResults.innerHTML=ids+details+'<div class="batteryRow"><b>FRONTITY JSON</b><span>'+(fr.parsed?'JSON parseado · '+fr.bytes+' bytes':'não parseado')+'</span><small>root: '+((fr.rootKeys||[]).join(', ')||fr.error||'-')+'</small></div>'+routes+arrays+pag+'<div class="batteryRow"><b>ESTADO ESTRUTURADO DO EMBED</b><span>Campos e scripts que alimentam os cards</span><small>Procurando métricas, listas e os 7 IDs dentro dos scripts.</small></div>'+stateRows+scriptRows+'<div class="batteryRow"><b>CLASSIFICAÇÃO DOS '+(x.allNumericCandidateCount??0)+' CANDIDATOS</b><span>Vídeos confirmados + IDs restantes</span><small>Os não confirmados são classificados pelo contexto do HTML.</small></div>'+candidates+attempts;lastResult=x;setBatteryShare(x);}catch(e){batteryState.textContent='Falha no teste Embed';batteryDetail.textContent=e.message}finally{embedBtn.disabled=false}};
+
+
+const quietBtn=document.querySelector('#runTikTokQuiet');
+if(quietBtn)quietBtn.onclick=async()=>{
+  const username=$('#username').value.trim();if(!username)return alert('Informe o @usuário.');
+  quietBtn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Entrando no TikTok…';batteryDetail.textContent='30 segundos sem fazer nada + 1 scroll';batteryResults.innerHTML='';
+  try{
+    const r=await fetch('/api/tiktok/quiet?username='+encodeURIComponent(username),{cache:'no-store'});
+    const x=await r.json();if(!r.ok)throw Error(x.error||('HTTP '+r.status));
+    setBatteryShare(x);lastResult=x;
+    const q=x.quiet||{},s=x.afterOneScroll||{};
+    batteryState.textContent='Teste quieto concluído';
+    batteryDetail.textContent='Parado: '+(q.videoCount||0)+' vídeo(s) · após 1 scroll: '+(s.videoCount||0)+' · novos: '+((s.newVideoIds||[]).length);
+    const rows=(arr,label)=>(arr||[]).map(v=>'<div class="batteryRow"><b>'+label+' · '+v.type.toUpperCase()+'</b><span>HTTP '+v.status+' · '+v.bytes+' bytes</span><small>'+String(v.url||'').replace(/</g,'&lt;')+(v.bodyError?' · '+v.bodyError:'')+'</small></div>').join('');
+    batteryResults.innerHTML='<div class="batteryRow"><b>30 S PARADO</b><span>IDs: '+((q.videoIds||[]).join(', ')||'nenhum')+'</span><small>'+((q.network||[]).length)+' respostas document/xhr/fetch observadas naturalmente.</small></div><div class="batteryRow"><b>DEPOIS DE 1 SCROLL</b><span>Novos IDs: '+((s.newVideoIds||[]).join(', ')||'nenhum')+'</span><small>Total visível: '+(s.videoCount||0)+' · '+((s.network||[]).length)+' novas respostas.</small></div><div class="batteryRow"><b>SESSÃO</b><span>'+((x.session?.cookieNames||[]).join(', ')||'sem cookies')+'</span><small>'+((x.session?.cookieCount)||0)+' cookies; valores não exportados.</small></div>'+rows(q.network,'QUIETO')+rows(s.network,'1 SCROLL');
+  }catch(e){batteryState.textContent='Falha no teste quieto';batteryDetail.textContent=e.message}
+  finally{quietBtn.disabled=false}
+};
