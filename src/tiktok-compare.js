@@ -544,16 +544,25 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
   }finally{await browser?.close().catch(()=>{})}
 }
 
-export async function freshTikTokScreenshot(username){
-  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+async function freshShotTarget(target){
   let browser,context;
   try{
     browser=await chromium.launch({headless:true});
     context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo'});
     await context.clearCookies();
     const page=await context.newPage();
-    await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user),{waitUntil:'domcontentloaded',timeout:20000});
+    await page.goto(target,{waitUntil:'domcontentloaded',timeout:20000});
     await page.waitForTimeout(5000);
     return await page.screenshot({type:'jpeg',quality:78,fullPage:false,timeout:5000});
   }finally{await context?.close().catch(()=>{});await browser?.close().catch(()=>{})}
+}
+export async function freshTikTokScreenshot(username,target='profile'){
+  const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
+  const targets={
+    profile:'https://www.tiktok.com/@'+encodeURIComponent(user),
+    a:'https://www.tiktok.com/@'+encodeURIComponent(user)+'/video/7689954489733778709',
+    b:'https://www.tiktok.com/@'+encodeURIComponent(user)+'/video/7690154508063690036'
+  };
+  if(!targets[target])throw new Error('Target inválido.');
+  return freshShotTarget(targets[target]);
 }
