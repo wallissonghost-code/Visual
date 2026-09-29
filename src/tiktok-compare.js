@@ -58,7 +58,7 @@ async function inspectOne(browser,input){
   page.on('response',async r=>{const u=r.url();if(!isTikTok(u))return;let path='';try{const x=new URL(u);path=x.pathname+x.search}catch{}const entry={status:r.status(),resourceType:r.request().resourceType(),path:path.slice(0,500)};requests.push(entry);if(['xhr','fetch'].includes(entry.resourceType)){try{const body=(await r.text()).slice(0,1200000);responseEvidence.push({status:entry.status,path:entry.path,bytes:Buffer.byteLength(body),body})}catch{}}});
   try{
     const res=await page.goto(input,{waitUntil:'domcontentloaded',timeout:25000});
-    await page.waitForTimeout(3500);
+    await liveWait(3500);
     const html=await page.content();const base=inspectHtml(html,page.url(),res?.status()||null),targetId=base.id;
     const networkEvidence=responseEvidence.map(x=>{const parsed=parseJsonEvidence(x.body,targetId);return {status:x.status,path:x.path,bytes:x.bytes,containsTarget:targetId?x.body.includes(targetId):false,jsonParsed:parsed.parsed,topKeys:parsed.topKeys,matches:parsed.matches}}).filter(x=>x.containsTarget||x.matches.length);
     return {...base,input:cleanUrl(input),requests:requests.slice(0,120),networkEvidence,rawHtml:html};
@@ -523,13 +523,16 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000});
     await page.waitForTimeout(1800);
     const screenshots=[];
+    let frameBusy=false;
+    const liveFrame=async(label='AO VIVO')=>{if(frameBusy)return;frameBusy=true;try{const b=await page.screenshot({type:'jpeg',quality:42,fullPage:false});onProgress('frame','data:image/jpeg;base64,'+b.toString('base64'))}catch{}finally{frameBusy=false}};
+    const liveWait=async(ms)=>{const end=Date.now()+ms;while(Date.now()<end){await liveFrame();await page.waitForTimeout(Math.min(1500,Math.max(0,end-Date.now())))}};
     screenshots.push(await shot(page,'PRINT 1 · perfil abriu'));
     onProgress('warmup','Print 1 feito. Aquecendo 15 s e fazendo interação mínima…');
-    await page.waitForTimeout(7000);
+    await liveWait(7000);
     await page.mouse.move(650,380,{steps:6});
     await page.waitForTimeout(3500);
     await page.mouse.wheel(0,180);
-    await page.waitForTimeout(4500);
+    await liveWait(4500);
     screenshots.push(await shot(page,'PRINT 2 · após 15 s + interação leve'));
 
     const events=[];
@@ -546,7 +549,7 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
     const startedAt=Date.now();
     const nav=await page.reload({waitUntil:'domcontentloaded',timeout:30000});
     onProgress('observe','Reload concluído. Observando 20 s sem novas interações…');
-    await page.waitForTimeout(20000);
+    await liveWait(20000);
     screenshots.push(await shot(page,'PRINT 3 · captura + reload + 20 s'));
     onProgress('retry','Procurando o botão Atualizar que o próprio TikTok exibiu…');
     let retry={found:false,clicked:false,text:null,error:null};
@@ -559,12 +562,12 @@ export async function observeTikTokQuietly(username,onProgress=()=>{}){
       for(const c of candidates){if(await c.count()){const first=c.first();if(await first.isVisible().catch(()=>false)){target=first;break}}}
       if(target){
         retry.found=true;retry.text=(await target.innerText().catch(()=>''))||null;
-        await target.click({timeout:5000});retry.clicked=true;
+        try{await target.click({timeout:12000})}catch{try{await target.click({force:true,timeout:5000})}catch{await target.evaluate(el=>el.click())}}retry.clicked=true;
         onProgress('retry-wait','Atualizar clicado. Observando mais 15 s…');
-        await page.waitForTimeout(15000);
+        await liveWait(15000);
       }else{
         onProgress('retry-missing','Botão Atualizar não estava visível nessa etapa.');
-        await page.waitForTimeout(1500);
+        await liveWait(1500);
       }
     }catch(e){retry.error=String(e.message||e);onProgress('retry-error','Falha ao clicar em Atualizar: '+retry.error)}
     screenshots.push(await shot(page,'PRINT 4 · depois de clicar Atualizar'));
