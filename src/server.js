@@ -4,11 +4,11 @@ const app=express(),port=process.env.PORT||3000,jobs=new Map();app.use(express.j
 function mapFrontityState(source,username,videoIds){
   const m=source.match(/<script[^>]+id=["']__FRONTITY_CONNECT_STATE__["'][^>]*>([\s\S]*?)<\/script>/i);
   if(!m)return {found:false,error:'__FRONTITY_CONNECT_STATE__ não encontrado'};
-  let root;try{root=JSON.parse(m[1])}catch(e){return {found:true,parsed:false,bytes:Buffer.byteLength(m[1]),error:String(e.message||e)}}
-  const routeKey='/embed/@'+username;
-  const hits=[],arrays=[];
+  let root;
+  try{root=JSON.parse(m[1])}catch(e){return {found:true,parsed:false,bytes:Buffer.byteLength(m[1]),error:String(e.message||e)}}
+  const routeKey='/embed/@'+username,hits=[],arrays=[],routeCandidates=[];
   const wanted=/page|cursor|offset|hasmore|has_more|next|pagination|video|item/i;
-  function walk(v,path,depth=0){
+  function walk(v,path='$',depth=0){
     if(depth>10||v==null)return;
     if(Array.isArray(v)){
       if(v.length&&v.some(x=>x&&typeof x==='object'&&videoIds.some(id=>JSON.stringify(x).includes(id))))arrays.push({path,length:v.length,itemKeys:Object.keys(v.find(x=>x&&typeof x==='object')||{}).slice(0,80)});
@@ -16,12 +16,16 @@ function mapFrontityState(source,username,videoIds){
     }
     if(typeof v!=='object')return;
     for(const [k,val] of Object.entries(v)){
-      const p=path?path+'.'+k:k;
+      const p=path+'.'+k;
       if(wanted.test(k))hits.push({path:p,type:Array.isArray(val)?'array':typeof val,value:(val==null||typeof val!=='object')?val:Array.isArray(val)?'[array '+val.length+']':'{'+Object.keys(val).slice(0,30).join(', ')+'}'});
+      if(k.includes('/embed/@')||k===routeKey)routeCandidates.push({path:p,key:k,type:Array.isArray(val)?'array':typeof val,keys:val&&typeof val==='object'&&!Array.isArray(val)?Object.keys(val):[]});
       walk(val,p,depth+1);
     }
   }
-  walk(root,'
+  walk(root);
+  return {found:true,parsed:true,bytes:Buffer.byteLength(m[1]),rootKeys:Object.keys(root),routeKey,routeCandidates,videoArrays:arrays,paginationHits:hits.filter(x=>/page|cursor|offset|hasmore|has_more|next|pagination/i.test(x.path)),interestingHits:hits.slice(0,250)};
+}
+function inspectEmbedStructuredState(source,videoIds){
   const needles=['videoList','common-videoList','userInfo','playCount','diggCount','commentCount','shareCount','collectCount','itemList','itemStruct','proxyApi'];
   const findings={};
   for(const needle of needles){
@@ -30,9 +34,7 @@ function mapFrontityState(source,username,videoIds){
     findings[needle]={count:positions.length,samples:positions.slice(0,4).map(p=>source.slice(Math.max(0,p-220),Math.min(source.length,p+needle.length+520)).replace(/\s+/g,' '))};
   }
   const scripts=[...source.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)].map((m,i)=>{
-    const attrs=m[1]||'',body=m[2]||'';
-    const matchedIds=videoIds.filter(id=>body.includes(id));
-    const hits=needles.filter(n=>body.includes(n));
+    const attrs=m[1]||'',body=m[2]||'',matchedIds=videoIds.filter(id=>body.includes(id)),hits=needles.filter(n=>body.includes(n));
     return {index:i,id:(attrs.match(/\bid=["']([^"']+)/i)||[])[1]||null,type:(attrs.match(/\btype=["']([^"']+)/i)||[])[1]||null,bytes:Buffer.byteLength(body),matchedIds,hits,preview:(matchedIds.length||hits.length)?body.slice(0,900):null};
   }).filter(x=>x.matchedIds.length||x.hits.length);
   return {needles:findings,scripts};
