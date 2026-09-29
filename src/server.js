@@ -1,6 +1,22 @@
 import express from 'express';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFile} from 'node:child_process';import {resolveSecurityTarget} from './security-target.js';import {visualBuildInfo} from './version.js';import {mapUrlRuntime} from './network-map.js';import {dumpTikTokItemList,inspectTikTokVideoBatch,compareTikTokVideoDetailShapes} from './tiktok-compare.js';
 const app=express(),port=process.env.PORT||3000,jobs=new Map();app.use(express.json({limit:'64kb'}));app.use(express.static(path.resolve('public')));app.get('/health',(_,res)=>res.json({ok:true,service:'visual-qa',jobs:jobs.size,...visualBuildInfo()}));app.get('/api/version',(_,res)=>res.json({...visualBuildInfo(),startedAt:new Date().toISOString()}));
 
+function inspectEmbedStructuredState(source,videoIds){
+  const needles=['videoList','common-videoList','userInfo','playCount','diggCount','commentCount','shareCount','collectCount','itemList','itemStruct','proxyApi'];
+  const findings={};
+  for(const needle of needles){
+    const positions=[];let from=0;
+    while(positions.length<12){const p=source.indexOf(needle,from);if(p<0)break;positions.push(p);from=p+needle.length}
+    findings[needle]={count:positions.length,samples:positions.slice(0,4).map(p=>source.slice(Math.max(0,p-220),Math.min(source.length,p+needle.length+520)).replace(/\s+/g,' '))};
+  }
+  const scripts=[...source.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)].map((m,i)=>{
+    const attrs=m[1]||'',body=m[2]||'';
+    const matchedIds=videoIds.filter(id=>body.includes(id));
+    const hits=needles.filter(n=>body.includes(n));
+    return {index:i,id:(attrs.match(/\bid=["']([^"']+)/i)||[])[1]||null,type:(attrs.match(/\btype=["']([^"']+)/i)||[])[1]||null,bytes:Buffer.byteLength(body),matchedIds,hits,preview:(matchedIds.length||hits.length)?body.slice(0,900):null};
+  }).filter(x=>x.matchedIds.length||x.hits.length);
+  return {needles:findings,scripts};
+}
 async function probeTikTokEmbed(username){
   const user=String(username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
   if(!user)throw new Error('Informe o @user.');
@@ -47,6 +63,13 @@ async function probeTikTokEmbed(username){
       attempts.push({name:x.name,status:r.status,finalUrl:r.url,bytes:Buffer.byteLength(body),contentType:r.headers.get('content-type'),ids:[...ids],numericIdCandidates:numericIds.slice(0,120),numericIdCandidateCount:numericIds.length,numericContexts:numericContexts.slice(0,120),idDetails});
     }catch(e){attempts.push({name:x.name,error:String(e.message||e),ids:[]})}
   }
+  const embedAttempt=attempts.find(a=>a.name==='EMBED_PUBLICO');
+  let structuredState=null;
+  try{
+    const er=await fetch('https://www.tiktok.com/embed/@'+encodeURIComponent(user),{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept-language':'pt-BR,pt;q=0.9,en;q=0.8'}});
+    const eb=await er.text();
+    structuredState=inspectEmbedStructuredState(eb,[...ids]);
+  }catch(e){structuredState={error:String(e.message||e)}}
   const allNumeric=[...new Set(attempts.flatMap(a=>a.numericIdCandidates||[]))];
   const details=attempts.flatMap(a=>a.idDetails||[]).filter((x,i,a)=>a.findIndex(y=>y.id===x.id)===i);
   const numericCandidates=allNumeric.map(id=>{
@@ -63,7 +86,7 @@ async function probeTikTokEmbed(username){
     const classification=confirmedVideo?'VIDEO_CONFIRMADO':hints.has('USER')&&!hints.has('VIDEO')?'PROVAVEL_USER_ID':hints.has('MUSIC')&&!hints.has('VIDEO')?'PROVAVEL_MUSIC_ID':hints.has('VIDEO')?'POSSIVEL_VIDEO':'NAO_CLASSIFICADO';
     return {id,classification,hints:[...hints],contexts:contexts.slice(0,3),evidence};
   });
-  return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),details,allNumericCandidateCount:allNumeric.length,allNumericCandidates:allNumeric,numericCandidates,attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
+  return {kind:'tiktok-embed-probe',username:user,profile,videoCount:ids.size,videoIds:[...ids],videoLinks:[...ids].map(id=>'https://www.tiktok.com/@'+user+'/video/'+id),details,structuredState,allNumericCandidateCount:allNumeric.length,allNumericCandidates:allNumeric,numericCandidates,attempts,note:'Teste de descoberta via superfícies públicas de embed; não autentica conta nem inventa IDs.'};
 }
 app.get('/api/tiktok/embed-probe',async(req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeTikTokEmbed(req.query.username))}catch(e){res.status(400).json({error:String(e.message||e)})}});
 const TIKTOK_VIDEO_BATTERY=["https://vt.tiktok.com/ZSbYbPdBX/","https://vt.tiktok.com/ZSbYbXBWd/","https://vt.tiktok.com/ZSbYb4NLm/","https://vt.tiktok.com/ZSbYbwUbH/","https://vt.tiktok.com/ZSbYb9oXj/","https://vt.tiktok.com/ZSbYb36jv/","https://vt.tiktok.com/ZSbYbnoUe/","https://vt.tiktok.com/ZSbYb3tTh/","https://vt.tiktok.com/ZSb22UGrD/","https://vt.tiktok.com/ZSbjf9Ubx/","https://vt.tiktok.com/ZSbj5LE1a/","https://vt.tiktok.com/ZSbhd1fYP/","https://vt.tiktok.com/ZSbhe3Nox/"];
