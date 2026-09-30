@@ -252,7 +252,7 @@ export async function inspectTikTokVideoBatch(urls,onProgress=()=>{}){
   }finally{await browser?.close().catch(()=>{})}
 }
 
-export async function dumpTikTokItemList(username,onProgress=()=>{}){
+export async function dumpTikTokItemList(username,onProgress=()=>{},options={}){
   const user=normalizeUser(username);if(!user)throw new Error('Informe o @user.');
   const profiles=[
     {name:'PADRAO',options:{serviceWorkers:'block'},init:null,url:'https://www.tiktok.com/@'+encodeURIComponent(user)},
@@ -260,10 +260,11 @@ export async function dumpTikTokItemList(username,onProgress=()=>{}){
     {name:'WINDOWS_BR_AQUECIDO',options:{serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1600,height:900},screen:{width:1600,height:900},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'},init:'win',warm:true,url:'https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR'},
     {name:'WINDOWS_BR_REDUCED_AUTOMATION',options:{serviceWorkers:'block',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1600,height:900},screen:{width:1600,height:900},userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/153.0.0.0 Safari/537.36'},init:'stealth-basic',warm:true,url:'https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR'}
   ];
+  const selectedProfiles=profiles.slice(0,Math.max(1,Math.min(profiles.length,Number(options.maxProfiles)||profiles.length)));
   let browser;const dumps=[];
   try{
     browser=await chromium.launch({headless:true});
-    for(const profile of profiles){
+    for(const profile of selectedProfiles){
       const context=await browser.newContext(profile.options);
       if(profile.init)await context.addInitScript((mode)=>{try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{}try{Object.defineProperty(navigator,'language',{get:()=> 'pt-BR',configurable:true})}catch{}try{Object.defineProperty(navigator,'languages',{get:()=> ['pt-BR','pt'],configurable:true})}catch{}if(mode==='stealth-basic'){try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{}try{delete Object.getPrototypeOf(navigator).webdriver}catch{}try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{}try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}}},profile.init);
       const page=await context.newPage(),pending=new Set();
