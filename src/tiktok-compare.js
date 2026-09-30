@@ -594,6 +594,6 @@ export async function captureTikTokReposts(username){
     const repostAction=await clickText('REPUBLICAÇÕES',/^(republicações|republicacoes|reposts?)$/i,6000);
     const items=[],seen=new Set();
     for(const c of captures)for(const it of c.json?.itemList||[]){const id=String(it?.id||'');if(!id||seen.has(id))continue;seen.add(id);const st=it.stats||{};items.push({id,author:it.author?.uniqueId||null,desc:it.desc||'',views:st.playCount??null,likes:st.diggCount??null,comments:st.commentCount??null,shares:st.shareCount??null,saves:st.collectCount??null})}
-    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:repostAction.clicked,clickTarget:repostAction,captureCount:captures.length,captures:captures.map(x=>({status:x.status,bytes:x.bytes,itemCount:x.json?.itemList?.length??0})),itemCount:items.length,items,actions};
+    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:repostAction.clicked,clickTarget:repostAction,captureCount:captures.length,captures:captures.map(x=>({status:x.status,bytes:x.bytes,itemCount:x.json?.itemList?.length??0,summary:x.json?{topLevelFields:Object.keys(x.json).filter(k=>!/(token|signature|verify|cookie)/i.test(k)),statusCode:x.json.statusCode??null,statusMsg:x.json.statusMsg??null,hasMore:x.json.hasMore??null,cursor:x.json.cursor??null}:null})),itemCount:items.length,items,actions};
   }finally{await browser?.close().catch(()=>{})}
 }
