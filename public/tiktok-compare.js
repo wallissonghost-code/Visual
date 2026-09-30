@@ -78,3 +78,12 @@ if(repostBtn)repostBtn.onclick=async()=>{
  }catch(e){batteryState.textContent='Falha ao capturar republicados';batteryDetail.textContent=e.message}
  finally{repostBtn.disabled=false}
 };
+
+const indexed10Btn=document.querySelector('#runIndexed10');
+if(indexed10Btn)indexed10Btn.onclick=async()=>{
+ indexed10Btn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='Testando vídeo indexado #10…';batteryDetail.textContent='ID 7690154508063690036 · índice PC → atualização Render';batteryResults.innerHTML='';
+ try{const r=await fetch('/api/tiktok/indexed-video-10?ts='+Date.now(),{cache:'no-store'});const x=await r.json();if(!r.ok)throw Error(x.error||('HTTP '+r.status));lastResult=x;setBatteryShare(x);
+ const m=x.indexed.metrics||{},l=x.live||{},e=x.effectiveMetrics||{};batteryState.textContent=x.refreshSucceeded?'ATUALIZAÇÃO AO VIVO FUNCIONOU':'ÍNDICE PRESERVADO · LIVE INCOMPLETO';batteryDetail.textContent='Live: '+(l.classification||'-')+' · itemStruct '+(l.itemStructPresent?'SIM':'NÃO')+' · parser '+(l.parserAccepted?'SIM':'NÃO');
+ batteryResults.innerHTML='<div class="batteryRow"><b>INDEXADO · PC GOLD JSON</b><span>👁 '+m.views+' ♥ '+m.likes+' 💬 '+m.comments+' ↗ '+m.shares+' 🔖 '+m.saves+'</span><small>videoId '+x.indexed.id+'</small></div><div class="batteryRow"><b>RENDER · TENTATIVA AO VIVO</b><span>'+String(l.classification||'-')+' · HTTP '+String(l.httpStatus??'-')+' · '+String(l.htmlBytes??0)+' bytes</span><small>Universal '+(l.universalFound?'SIM':'NÃO')+' · video-detail '+(l.videoDetailPresent?'SIM':'NÃO')+' · itemStruct '+(l.itemStructPresent?'SIM':'NÃO')+'</small></div><div class="batteryRow"><b>MÉTRICA EFETIVA</b><span>👁 '+String(e.views??e.playCount??'-')+' ♥ '+String(e.likes??e.diggCount??'-')+' 💬 '+String(e.comments??e.commentCount??'-')+' ↗ '+String(e.shares??e.shareCount??'-')+' 🔖 '+String(e.saves??e.collectCount??'-')+'</span><small>'+(x.refreshSucceeded?'veio do TikTok agora':'fallback do índice conhecido')+'</small></div>';
+ }catch(e){batteryState.textContent='Falha no teste indexado';batteryDetail.textContent=e.message}finally{indexed10Btn.disabled=false}
+};
