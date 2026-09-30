@@ -207,6 +207,21 @@ async function probeMediaRoute10(){
 }
 app.get('/api/tiktok/indexed-video-10/media-routes',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeMediaRoute10())}catch(e){res.status(500).json({error:String(e.message||e)})}});
 
+const GOLD_PLAY_PARAMS_10={faid:'1988',file_id:'fb4055c07b444668baec6a3c538a12f7',item_id:'7690154508063690036',line:'0',ply_type:'2',video_id:'v14044g50000dasejm7og65ko2o76l6g'};
+async function probeGoldPlayParams10(){
+ const amp=String.fromCharCode(38), base='https://www.tiktok.com/aweme/v1/play/?';
+ const variants=[
+  ['BASE_IDS',['item_id','video_id','is_play_url']],
+  ['PLUS_FAID',['faid','item_id','video_id','is_play_url']],
+  ['PLUS_FILE',['faid','file_id','item_id','video_id','is_play_url']],
+  ['PLUS_LINE_PLY',['faid','file_id','item_id','line','ply_type','video_id','is_play_url']]
+ ];
+ const val=k=>k==='is_play_url'?'1':GOLD_PLAY_PARAMS_10[k]; const results=[];
+ for(const [name,keys] of variants){const url=base+keys.map(k=>encodeURIComponent(k)+'='+encodeURIComponent(val(k))).join(amp);try{const resp=await fetch(url,{redirect:'manual',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36','accept':'*/*','accept-language':'pt-BR,pt;q=0.9,en;q=0.8','referer':'https://www.tiktok.com/'}});const ct=resp.headers.get('content-type')||'',loc=resp.headers.get('location')||null;let bytes=0;if(!loc)bytes=(await resp.arrayBuffer()).byteLength;results.push({name,keys,status:resp.status,contentType:ct,bytes,redirect:!!loc,redirectHost:loc?(()=>{try{return new URL(loc,url).host}catch{return null}})():null})}catch(e){results.push({name,keys,error:String(e.message||e)})}}
+ return {kind:'tiktok-gold-play-param-probe',createdAt:new Date().toISOString(),note:'Static identity/routing params only; old signed/token params intentionally excluded',results};
+}
+app.get('/api/tiktok/indexed-video-10/gold-play-params',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeGoldPlayParams10())}catch(e){res.status(500).json({error:String(e.message||e)})}});
+
 const INDEXED_SCAN_VERSION='indexed-html-scan-v2';
 const INDEXED_VIDEO_10={id:'7690154508063690036',source:'PC_GOLD_JSON',metrics:{views:128,likes:3,comments:3,shares:0,saves:0}};
 app.get('/api/tiktok/indexed-video-10',async(_req,res)=>{res.setHeader('cache-control','no-store');try{const live=await inspectTikTokVideoBatch(['https://www.tiktok.com/@oopedrogames/video/'+INDEXED_VIDEO_10.id]);const row=live.results?.[0]||null;res.json({kind:'indexed-video-refresh-test',scanVersion:INDEXED_SCAN_VERSION,createdAt:new Date().toISOString(),indexed:INDEXED_VIDEO_10,live:row?{...row,htmlScan:row.htmlScan||null}:row,refreshSucceeded:!!(row?.classification==='COMPLETO'&&row?.metrics),effectiveMetrics:(row?.classification==='COMPLETO'&&row?.metrics)?row.metrics:INDEXED_VIDEO_10.metrics,note:(row?.classification==='COMPLETO'&&row?.metrics)?'Atualização ao vivo substituiu o snapshot indexado.':'Atualização ao vivo não trouxe métricas completas; snapshot indexado preservado.'})}catch(e){res.status(500).json({error:String(e.message||e)})}});
