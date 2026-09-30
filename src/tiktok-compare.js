@@ -593,29 +593,44 @@ export async function captureTikTokReposts(username){
     await page.waitForTimeout(7000);await page.bringToFront().catch(()=>{});
     await page.mouse.move(620,360,{steps:8}).catch(()=>{});await page.mouse.wheel(0,120).catch(()=>{});await page.waitForTimeout(2500);
 
-    const tabMap=await page.locator('[role=tab],button,a,div').evaluateAll(els=>els.map((e,i)=>{
-      const q=e.getBoundingClientRect(),txt=(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
-      const aria=[e.getAttribute('aria-label'),e.getAttribute('data-e2e'),e.getAttribute('title')].filter(Boolean).join(' ');
-      const svg=e.querySelector('svg');
-      return {i,txt:txt.slice(0,80),aria:aria.slice(0,120),visible:q.width>0&&q.height>0,x:Math.round(q.x),y:Math.round(q.y),w:Math.round(q.width),h:Math.round(q.height),hasSvg:!!svg};
-    }).filter(x=>x.visible&&(x.txt||x.aria||x.hasSvg)));
-    const candidates=tabMap.filter(x=>/repost|republic/i.test(x.txt+' '+x.aria));
-    let activation={method:null,clicked:false,target:null};
-
-    if(candidates.length){
-      const c=candidates[0];activation={method:'semantic',clicked:false,target:c};
-      const all=page.locator('[role=tab],button,a,div');const el=all.nth(c.i);
-      activatedAt=Date.now();await el.click({force:true,timeout:2000}).catch(()=>el.evaluate(e=>e.click()).catch(()=>{}));activation.clicked=true;
-    }else{
-      const profileTabs=tabMap.filter(x=>x.y>250&&x.y<700&&x.w>20&&x.h>15).sort((a,b)=>a.y-b.y||a.x-b.x);
-      const rows=[];for(const t of profileTabs){let row=rows.find(r=>Math.abs(r.y-t.y)<8);if(!row){row={y:t.y,items:[]};rows.push(row)}row.items.push(t)}
-      const row=rows.filter(r=>r.items.length>=3).sort((a,b)=>b.items.length-a.items.length)[0];
-      if(row){
-        const uniq=row.items.sort((a,b)=>a.x-b.x).filter((x,i,a)=>i===0||Math.abs(x.x-a[i-1].x)>15);
-        const target=uniq[1]||uniq[0];
-        if(target){activation={method:'tab-row-position-2',clicked:false,target};const all=page.locator('[role=tab],button,a,div');const el=all.nth(target.i);activatedAt=Date.now();await el.click({force:true,timeout:2000}).catch(()=>el.evaluate(e=>e.click()).catch(()=>{}));activation.clicked=true}
+    // Recover the profile content area before attempting any repost-tab activation.
+    let recovery={errorState:false,refreshFound:false,refreshClicked:false,recovered:false};
+    const errorText=await page.locator('body').innerText().catch(()=> '');
+    recovery.errorState=/algo deu errado|tente novamente mais tarde/i.test(errorText);
+    if(recovery.errorState){
+      const refresh=page.getByText(/^Atualizar$/i).last();
+      recovery.refreshFound=await refresh.isVisible().catch(()=>false);
+      if(recovery.refreshFound){
+        await refresh.click({force:true,timeout:2500}).catch(()=>{});
+        recovery.refreshClicked=true;
+        await page.waitForTimeout(7000);
       }
     }
+
+    const tabMap=await page.locator('[role=tab],[data-e2e],button').evaluateAll(els=>els.map((e,i)=>{
+      const q=e.getBoundingClientRect();
+      const txt=(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
+      const aria=[e.getAttribute('aria-label'),e.getAttribute('data-e2e'),e.getAttribute('title'),e.getAttribute('role')].filter(Boolean).join(' ');
+      return {i,txt:txt.slice(0,80),aria:aria.slice(0,160),visible:q.width>0&&q.height>0,x:Math.round(q.x),y:Math.round(q.y),w:Math.round(q.width),h:Math.round(q.height),tag:e.tagName};
+    }).filter(x=>x.visible));
+    const bodyAfter=await page.locator('body').innerText().catch(()=> '');
+    recovery.recovered=!/algo deu errado|tente novamente mais tarde/i.test(bodyAfter);
+
+    let activation={method:null,clicked:false,target:null,repostTabUnavailable:false};
+    const semantic=tabMap.filter(x=>/repost|republic/i.test(x.txt+' '+x.aria) && x.w<500 && x.h<120);
+    if(semantic.length){
+      const c=semantic[0];
+      activation={method:'semantic-repost-tab',clicked:false,target:c,repostTabUnavailable:false};
+      const els=page.locator('[role=tab],[data-e2e],button');
+      const el=els.nth(c.i);
+      activatedAt=Date.now();
+      const ok=await el.click({force:true,timeout:2500}).then(()=>true).catch(()=>false);
+      activation.clicked=ok;
+    }else{
+      // No positional guessing: an absent real tab is a diagnostic result.
+      activation={method:'no-real-repost-tab',clicked:false,target:null,repostTabUnavailable:true};
+    }
+    actions.push({name:'PROFILE_RECOVERY',...recovery});
     actions.push({name:'REPOST_ACTIVATION',...activation});
     await page.waitForTimeout(8000);
     const valid=captures.filter(x=>x.phase==='after-activation');
