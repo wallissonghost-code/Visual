@@ -4,3 +4,6 @@
 
 
 .batteryBtn{width:100%;margin-top:10px;border:1px solid #35e78166;border-radius:11px;padding:14px;background:#111713;color:#35e781;font-weight:900;letter-spacing:.06em}.batteryBtn:disabled{opacity:.55}.batteryPanel{margin-top:14px;padding:14px;border:1px solid #26332c;border-radius:12px;background:#080b0a}.batteryPanel>strong{color:#35e781}.batteryPanel>p{margin:6px 0 12px;color:#839189;font-size:12px}.batteryResults{display:grid;gap:8px}.batteryRow{padding:10px;border:1px solid #202b26;border-radius:10px;background:#0c110f;display:grid;gap:4px}.batteryRow b{font-size:12px;color:#35e781}.batteryRow span,.batteryRow small{overflow-wrap:anywhere}.batteryRow span{font-size:11px;color:#c5d1ca}.batteryRow small{font-size:10px;color:#839189}
+
+/* TikTok diagnostic launcher */
+.diagnosticLauncher{display:grid;gap:10px;margin-top:14px}.diagnosticLauncher label{font-size:12px;font-weight:800;letter-spacing:.08em;opacity:.72}.diagnosticLauncher select{width:100%;min-height:48px;padding:0 14px;border:1px solid #26332d;border-radius:12px;background:#0b100e;color:#f4f7f5;font:inherit}.diagnosticLauncher small{opacity:.58;font-size:12px;line-height:1.4}
