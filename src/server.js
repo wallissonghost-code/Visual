@@ -190,6 +190,7 @@ app.get('/api/tiktok/video-detail-diff',async(_req,res)=>{res.setHeader('cache-c
 app.get('/api/tiktok/video-pair',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await inspectTikTokVideoBatch([TIKTOK_VIDEO_BATTERY[8],TIKTOK_VIDEO_BATTERY[9]]))}catch(e){res.status(500).json({ok:false,error:String(e.message||e)})}});
 app.get('/api/tiktok/video-battery',async(_req,res)=>{res.setHeader('content-type','application/x-ndjson; charset=utf-8');res.setHeader('cache-control','no-store');res.setHeader('x-accel-buffering','no');res.flushHeaders?.();const send=x=>res.write(JSON.stringify(x)+'\n');send({type:'start',count:TIKTOK_VIDEO_BATTERY.length});try{const result=await inspectTikTokVideoBatch(TIKTOK_VIDEO_BATTERY,(stage,message,data)=>send({type:'progress',stage,message,...(data||{})}));send({type:'result',result})}catch(e){send({type:'error',error:String(e.message||e)})}finally{res.end()}});
 
+const MEDIA_ROUTE_PROBE_VERSION='media-route-v2';
 const MEDIA_ROUTE_VIDEO_10={itemId:'7690154508063690036',videoId:'v14044g50000dasejm7og65ko2o76l6g'};
 async function probeMediaRoute10(){
   const {itemId,videoId}=MEDIA_ROUTE_VIDEO_10;
