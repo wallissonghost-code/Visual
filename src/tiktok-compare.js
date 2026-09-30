@@ -598,7 +598,7 @@ export async function captureTikTokReposts(username){
       const aria=[e.getAttribute('aria-label'),e.getAttribute('data-e2e'),e.getAttribute('title')].filter(Boolean).join(' ');
       const svg=e.querySelector('svg');
       return {i,txt:txt.slice(0,80),aria:aria.slice(0,120),visible:q.width>0&&q.height>0,x:Math.round(q.x),y:Math.round(q.y),w:Math.round(q.width),h:Math.round(q.height),hasSvg:!!svg};
-    }).filter(x=>x.visible&&(x.txt||x.aria||x.hasSvg))));
+    }).filter(x=>x.visible&&(x.txt||x.aria||x.hasSvg)));
     const candidates=tabMap.filter(x=>/repost|republic/i.test(x.txt+' '+x.aria));
     let activation={method:null,clicked:false,target:null};
 
