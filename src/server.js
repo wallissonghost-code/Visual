@@ -222,6 +222,15 @@ async function probeGoldPlayParams10(){
 }
 app.get('/api/tiktok/indexed-video-10/gold-play-params',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await probeGoldPlayParams10())}catch(e){res.status(500).json({error:String(e.message||e)})}});
 
+async function captureNaturalPlay10(){
+ const { chromium }=await import('playwright'); const target='7690154508063690036', hits=[]; let browser;
+ try{browser=await chromium.launch({headless:true});const ctx=await browser.newContext({viewport:{width:1365,height:768},locale:'pt-BR',timezoneId:'America/Sao_Paulo',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/153 Safari/537.36'});const page=await ctx.newPage();
+ const record=u=>{try{const x=new URL(u);if(!x.pathname.includes('/aweme/v1/play'))return;const sensitive=/token|signature|verify|bogus|gnarly|dynosaur|ttwid/i;hits.push({path:x.pathname,paramNames:[...x.searchParams.keys()],safeParams:Object.fromEntries([...x.searchParams.entries()].filter(([k])=>!sensitive.test(k)).map(([k,v])=>[k,v.length>100?'[LONG]':v])),hasTarget:x.searchParams.get('item_id')===target||u.includes(target)})}catch{}};
+ page.on('request',q=>record(q.url()));page.on('response',q=>record(q.url()));await page.goto('https://www.tiktok.com/@oopedrogames/video/'+target,{waitUntil:'domcontentloaded',timeout:30000});await page.waitForTimeout(7000);await page.mouse.click(680,380).catch(()=>{});await page.waitForTimeout(5000);await page.mouse.wheel(0,400).catch(()=>{});await page.waitForTimeout(3000);await ctx.close();
+ return {kind:'tiktok-natural-play-capture',createdAt:new Date().toISOString(),targetId:target,hitCount:hits.length,hits:[...new Map(hits.map(x=>[x.path+'?'+x.paramNames.join(','),x])).values()]};}finally{if(browser)await browser.close().catch(()=>{})}
+}
+app.get('/api/tiktok/indexed-video-10/natural-play',async(_req,res)=>{res.setHeader('cache-control','no-store');try{res.json(await captureNaturalPlay10())}catch(e){res.status(500).json({error:String(e.message||e)})}});
+
 const INDEXED_SCAN_VERSION='indexed-html-scan-v2';
 const INDEXED_VIDEO_10={id:'7690154508063690036',source:'PC_GOLD_JSON',metrics:{views:128,likes:3,comments:3,shares:0,saves:0}};
 app.get('/api/tiktok/indexed-video-10',async(_req,res)=>{res.setHeader('cache-control','no-store');try{const live=await inspectTikTokVideoBatch(['https://www.tiktok.com/@oopedrogames/video/'+INDEXED_VIDEO_10.id]);const row=live.results?.[0]||null;res.json({kind:'indexed-video-refresh-test',scanVersion:INDEXED_SCAN_VERSION,createdAt:new Date().toISOString(),indexed:INDEXED_VIDEO_10,live:row?{...row,htmlScan:row.htmlScan||null}:row,refreshSucceeded:!!(row?.classification==='COMPLETO'&&row?.metrics),effectiveMetrics:(row?.classification==='COMPLETO'&&row?.metrics)?row.metrics:INDEXED_VIDEO_10.metrics,note:(row?.classification==='COMPLETO'&&row?.metrics)?'Atualização ao vivo substituiu o snapshot indexado.':'Atualização ao vivo não trouxe métricas completas; snapshot indexado preservado.'})}catch(e){res.status(500).json({error:String(e.message||e)})}});
