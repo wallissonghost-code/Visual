@@ -244,7 +244,7 @@ export async function inspectTikTokVideoBatch(urls,onProgress=()=>{}){
         const data=parseUniversalObject(x.rawHtml),item=findItemStruct(data,x.id),parsed=parserContract(item);
         const videoDetail=!!data?.__DEFAULT_SCOPE__?.['webapp.video-detail'];let classification='VAZIO';
         if(item&&parsed.accepted)classification='COMPLETO';else if(videoDetail||x.markers?.['video-detail']||data)classification='PARCIAL';
-        results[i]={index:i+1,input,id:x.id,finalUrl:x.finalUrl,httpStatus:x.status,htmlBytes:x.htmlBytes,universalFound:!!data,videoDetailPresent:videoDetail,itemStructPresent:!!item,parserAccepted:!!parsed.accepted,classification,metrics:parsed.accepted?parsed.fields:null,networkResponsesWithTarget:x.networkEvidence?.length||0};
+        results[i]={index:i+1,input,id:x.id,finalUrl:x.finalUrl,httpStatus:x.status,htmlBytes:x.htmlBytes,universalFound:!!data,videoDetailPresent:videoDetail,itemStructPresent:!!item,parserAccepted:!!parsed.accepted,classification,metrics:parsed.accepted?parsed.fields:null,networkResponsesWithTarget:x.networkEvidence?.length||0,htmlScan:x.htmlScan||null};
       }catch(e){results[i]={index:i+1,input,classification:'ERRO',error:String(e.message||e)}}
     }
     const counts=results.reduce((a,x)=>(a[x.classification]=(a[x.classification]||0)+1,a),{});
