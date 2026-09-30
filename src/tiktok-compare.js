@@ -61,7 +61,14 @@ async function inspectOne(browser,input){
     await page.waitForTimeout(3500);
     const html=await page.content();const base=inspectHtml(html,page.url(),res?.status()||null),targetId=base.id;
     const networkEvidence=responseEvidence.map(x=>{const parsed=parseJsonEvidence(x.body,targetId);return {status:x.status,path:x.path,bytes:x.bytes,containsTarget:targetId?x.body.includes(targetId):false,jsonParsed:parsed.parsed,topKeys:parsed.topKeys,matches:parsed.matches}}).filter(x=>x.containsTarget||x.matches.length);
-    return {...base,input:cleanUrl(input),requests:requests.slice(0,120),networkEvidence,rawHtml:html};
+    const scanTerms=['playCount','diggCount','commentCount','shareCount','collectCount','statsV2','stats',String(targetId||'')].filter(Boolean);
+    const htmlScan={bytes:Buffer.byteLength(html),terms:{}};
+    for(const term of scanTerms){
+      const positions=[];let from=0,at=-1,total=0;
+      while((at=html.indexOf(term,from))>=0){total++;if(positions.length<25)positions.push(at);from=at+term.length}
+      htmlScan.terms[term]={count:total,positions};
+    }
+    return {...base,input:cleanUrl(input),requests:requests.slice(0,120),networkEvidence,htmlScan,rawHtml:html};
   } finally {await context.close()}
 }
 function realVideoCard(x){
