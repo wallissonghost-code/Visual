@@ -108,3 +108,14 @@ const deviceTree10Btn=document.querySelector('#runDeviceTree10');if(deviceTree10
 
 const crossBorder10Btn=document.querySelector('#runCrossBorder10');if(crossBorder10Btn)crossBorder10Btn.onclick=async()=>{crossBorder10Btn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='TESTANDO REGIÃO #10';batteryDetail.textContent='BR × US × GB';batteryResults.innerHTML='';try{const r=await fetch('/api/tiktok/indexed-video-10/cross-border');const x=await r.json();if(!r.ok)throw new Error(x.error||'Falha');lastResult=x;setBatteryShare(x);batteryState.textContent='REGIÃO #10 CONCLUÍDO';batteryDetail.textContent='Comparação de contexto';batteryResults.innerHTML=(x.results||[]).map(v=>'<div class="batteryRow"><b>'+v.name+'</b><span>HTTP '+v.httpStatus+' · '+v.htmlBytes+' bytes</span><small>'+String(v.detail?.statusCode||'-')+' · '+String(v.detail?.statusMsg||'sem statusMsg')+' · itemInfo '+(v.detail?.hasItemInfo?'SIM':'NÃO')+'</small></div>').join('')}catch(e){batteryState.textContent='Falha REGIÃO';batteryDetail.textContent=e.message}finally{crossBorder10Btn.disabled=false}};
 const mobileProfile10Btn=document.querySelector('#runMobileProfile10');if(mobileProfile10Btn)mobileProfile10Btn.onclick=async()=>{mobileProfile10Btn.disabled=true;batteryPanel.classList.remove('hidden');batteryState.textContent='VARRENDO PERFIL NO MOBILE';batteryDetail.textContent='BR mobile × US mobile + rede';batteryResults.innerHTML='';try{const r=await fetch('/api/tiktok/indexed-video-10/deep-mobile-profile');const x=await r.json();if(!r.ok)throw new Error(x.error||'Falha');lastResult=x;setBatteryShare(x);batteryState.textContent='PERFIL MOBILE CONCLUÍDO';batteryDetail.textContent='Procurando referências de vídeos no perfil';batteryResults.innerHTML=(x.modes||[]).map(v=>'<div class="batteryRow"><b>'+v.name+'</b><span>HTTP '+v.httpStatus+' · '+v.htmlBytes+' bytes · IDs '+v.videoIdCount+'</span><small>'+String((v.videoIds||[]).slice(0,12).join(' · ')||'nenhum ID encontrado')+'</small></div>').join('')}catch(e){batteryState.textContent='Falha PERFIL MOBILE';batteryDetail.textContent=e.message}finally{mobileProfile10Btn.disabled=false}};
+
+// Unified diagnostic launcher: keeps legacy handlers available without one-button-per-test UI.
+const diagnosticMode=document.querySelector('#diagnosticMode');
+const runDiagnostic=document.querySelector('#runDiagnostic');
+if(runDiagnostic)runDiagnostic.onclick=()=>{
+ const id=diagnosticMode?.value;
+ const target=id?document.getElementById(id):null;
+ if(!target)return;
+ runDiagnostic.disabled=true;
+ try{target.click()}finally{setTimeout(()=>{runDiagnostic.disabled=false},500)}
+};
