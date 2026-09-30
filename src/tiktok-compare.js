@@ -585,19 +585,28 @@ export async function captureTikTokReposts(username){
     page.on('response',async r=>{try{
       const u=new URL(r.url());if(!u.pathname.includes('/api/repost/item_list'))return;
       const body=await r.body();let json=null;try{json=JSON.parse(body.toString('utf8'))}catch{}
-      captures.push({url:cleanUrl(r.url()),status:r.status(),bytes:body.length,json});
+      captures.push({status:r.status(),bytes:body.length,json});
     }catch{}});
     await page.goto('https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR',{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
-    await page.waitForTimeout(4000);
-    const tabs=page.locator('button,[role=tab],a,div,span');
-    const hit=await tabs.evaluateAll((els)=>{const e=els.find(x=>/^(republicações|republicacoes|reposts?)$/i.test((x.innerText||x.textContent||'').trim())&&x.getBoundingClientRect().width>0&&x.getBoundingClientRect().height>0);if(!e)return false;e.setAttribute('data-repost-capture','1');return true}).catch(()=>false);
-    if(hit){const z=page.locator('[data-repost-capture="1"]').first();await z.click({force:true,timeout:2000}).catch(()=>z.evaluate(el=>el.click()).catch(()=>{}));}
-    await page.waitForTimeout(8000);
-    const items=[],seen=new Set();
-    for(const c of captures)for(const it of c.json?.itemList||[]){
-      const id=String(it?.id||'');if(!id||seen.has(id))continue;seen.add(id);
-      const st=it.stats||{};items.push({id,author:it.author?.uniqueId||null,desc:it.desc||'',views:st.playCount??null,likes:st.diggCount??null,comments:st.commentCount??null,shares:st.shareCount??null,saves:st.collectCount??null});
+    await page.waitForTimeout(6000);await page.bringToFront().catch(()=>{});
+    const click=await page.locator('button,[role=tab],a,div,span').evaluateAll((els)=>{
+      const exact=/^(republicações|republicacoes|reposts?)$/i;
+      const candidates=els.filter(x=>{const v=(x.innerText||x.textContent||'').trim(),q=x.getBoundingClientRect();return exact.test(v)&&q.width>0&&q.height>0});
+      if(!candidates.length)return null;
+      const e=candidates.sort((a,b)=>a.children.length-b.children.length)[0];e.setAttribute('data-repost-capture','1');
+      return {text:(e.innerText||e.textContent||'').trim(),tag:e.tagName,role:e.getAttribute('role')};
+    }).catch(()=>null);
+    let clicked=false;
+    if(click){const z=page.locator('[data-repost-capture="1"]').first();try{await z.click({force:true,timeout:1800});clicked=true}catch{clicked=await z.evaluate(el=>{el.click();return true}).catch(()=>false)}}
+    await page.waitForTimeout(6000);
+    // Same fallback used by the old visual battery: inspect the visible tab strip and click by order/label.
+    if(!captures.length){
+      const tabs=page.locator('[role=tab],button');
+      const n=await tabs.count().catch(()=>0);
+      for(let i=0;i<n&&!captures.length;i++){const t=tabs.nth(i),txt=((await t.innerText().catch(()=>''))||'').trim();if(/repost|republic/i.test(txt)){await t.click({force:true,timeout:1800}).catch(()=>{});clicked=true;await page.waitForTimeout(5000)}}
     }
-    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:hit,captureCount:captures.length,captures:captures.map(x=>({status:x.status,bytes:x.bytes,itemCount:x.json?.itemList?.length??0})),itemCount:items.length,items};
+    const items=[],seen=new Set();
+    for(const c of captures)for(const it of c.json?.itemList||[]){const id=String(it?.id||'');if(!id||seen.has(id))continue;seen.add(id);const st=it.stats||{};items.push({id,author:it.author?.uniqueId||null,desc:it.desc||'',views:st.playCount??null,likes:st.diggCount??null,comments:st.commentCount??null,shares:st.shareCount??null,saves:st.collectCount??null})}
+    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:clicked,clickTarget:click,captureCount:captures.length,captures:captures.map(x=>({status:x.status,bytes:x.bytes,itemCount:x.json?.itemList?.length??0})),itemCount:items.length,items};
   }finally{await context?.close().catch(()=>{});await browser?.close().catch(()=>{})}
 }
