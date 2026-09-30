@@ -581,19 +581,47 @@ export async function captureTikTokReposts(username){
   try{
     browser=await chromium.launch({headless:true});
     const context=await browser.newContext({serviceWorkers:'allow',userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',locale:'pt-BR',timezoneId:'America/Sao_Paulo',viewport:{width:1365,height:768},screen:{width:1365,height:768},deviceScaleFactor:1,colorScheme:'light',hasTouch:false,isMobile:false});
-    await context.addInitScript(()=>{try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{};try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{};try{Object.defineProperty(navigator,'hardwareConcurrency',{get:()=>8,configurable:true})}catch{};try{Object.defineProperty(navigator,'deviceMemory',{get:()=>8,configurable:true})}catch{}});
-    const page=await context.newPage(),captures=[],actions=[];
-    const liveWait=async(ms)=>{const end=Date.now()+ms;while(Date.now()<end)await page.waitForTimeout(Math.min(1000,Math.max(1,end-Date.now())))};
-    const clickText=async(name,re,wait=4000)=>{const rec={name,found:false,clicked:false,error:null};try{const t=await page.locator('button,[role=tab],a,div,span').evaluateAll((els,src)=>{const r=new RegExp(src,'i');const e=els.find(x=>{const v=(x.innerText||x.textContent||'').trim(),q=x.getBoundingClientRect();return r.test(v)&&q.width>0&&q.height>0});if(!e)return null;e.setAttribute('data-visual-fast-click','1');return (e.innerText||e.textContent||'').trim()},re.source).catch(()=>null);if(t){rec.found=true;const z=page.locator('[data-visual-fast-click="1"]').first();try{await z.click({force:true,timeout:1800})}catch{await z.evaluate(el=>el.click())}rec.clicked=true;await liveWait(wait)}}catch(e){rec.error=String(e.message||e)}actions.push(rec);return rec};
-    page.on('response',async r=>{try{if(!new URL(r.url()).pathname.includes('/api/repost/item_list'))return;const body=await r.body();let json=null;try{json=JSON.parse(body.toString('utf8'))}catch{}captures.push({status:r.status(),bytes:body.length,json})}catch{}});
+    await context.addInitScript(()=>{try{Object.defineProperty(navigator,'webdriver',{get:()=>undefined,configurable:true})}catch{};try{Object.defineProperty(navigator,'platform',{get:()=> 'Win32',configurable:true})}catch{}});
+    const page=await context.newPage(),captures=[],actions=[];let activatedAt=Infinity;
+    page.on('response',async r=>{try{
+      if(!new URL(r.url()).pathname.includes('/api/repost/item_list'))return;
+      const body=await r.body();let json=null;try{json=JSON.parse(body.toString('utf8'))}catch{}
+      captures.push({at:Date.now(),phase:Date.now()>=activatedAt?'after-activation':'preload',status:r.status(),bytes:body.length,json});
+    }catch{}});
     const profileUrl='https://www.tiktok.com/@'+encodeURIComponent(user)+'?lang=pt-BR';
-    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});await liveWait(6000);
-    await page.bringToFront().catch(()=>{});
-    await page.mouse.move(620,360,{steps:8}).catch(()=>{});await page.mouse.wheel(0,120).catch(()=>{});await liveWait(3000);
-    await clickText('ATUALIZAR',/^(atualizar|refresh|retry|tentar novamente)$/i,5000);
-    const repostAction=await clickText('REPUBLICAÇÕES',/^(republicações|republicacoes|reposts?)$/i,6000);
+    await page.goto(profileUrl,{waitUntil:'domcontentloaded',timeout:30000}).catch(()=>{});
+    await page.waitForTimeout(7000);await page.bringToFront().catch(()=>{});
+    await page.mouse.move(620,360,{steps:8}).catch(()=>{});await page.mouse.wheel(0,120).catch(()=>{});await page.waitForTimeout(2500);
+
+    const tabMap=await page.locator('[role=tab],button,a,div').evaluateAll(els=>els.map((e,i)=>{
+      const q=e.getBoundingClientRect(),txt=(e.innerText||e.textContent||'').trim().replace(/\s+/g,' ');
+      const aria=[e.getAttribute('aria-label'),e.getAttribute('data-e2e'),e.getAttribute('title')].filter(Boolean).join(' ');
+      const svg=e.querySelector('svg');
+      return {i,txt:txt.slice(0,80),aria:aria.slice(0,120),visible:q.width>0&&q.height>0,x:Math.round(q.x),y:Math.round(q.y),w:Math.round(q.width),h:Math.round(q.height),hasSvg:!!svg};
+    }).filter(x=>x.visible&&(x.txt||x.aria||x.hasSvg))));
+    const candidates=tabMap.filter(x=>/repost|republic/i.test(x.txt+' '+x.aria));
+    let activation={method:null,clicked:false,target:null};
+
+    if(candidates.length){
+      const c=candidates[0];activation={method:'semantic',clicked:false,target:c};
+      const all=page.locator('[role=tab],button,a,div');const el=all.nth(c.i);
+      activatedAt=Date.now();await el.click({force:true,timeout:2000}).catch(()=>el.evaluate(e=>e.click()).catch(()=>{}));activation.clicked=true;
+    }else{
+      const profileTabs=tabMap.filter(x=>x.y>250&&x.y<700&&x.w>20&&x.h>15).sort((a,b)=>a.y-b.y||a.x-b.x);
+      const rows=[];for(const t of profileTabs){let row=rows.find(r=>Math.abs(r.y-t.y)<8);if(!row){row={y:t.y,items:[]};rows.push(row)}row.items.push(t)}
+      const row=rows.filter(r=>r.items.length>=3).sort((a,b)=>b.items.length-a.items.length)[0];
+      if(row){
+        const uniq=row.items.sort((a,b)=>a.x-b.x).filter((x,i,a)=>i===0||Math.abs(x.x-a[i-1].x)>15);
+        const target=uniq[1]||uniq[0];
+        if(target){activation={method:'tab-row-position-2',clicked:false,target};const all=page.locator('[role=tab],button,a,div');const el=all.nth(target.i);activatedAt=Date.now();await el.click({force:true,timeout:2000}).catch(()=>el.evaluate(e=>e.click()).catch(()=>{}));activation.clicked=true}
+      }
+    }
+    actions.push({name:'REPOST_ACTIVATION',...activation});
+    await page.waitForTimeout(8000);
+    const valid=captures.filter(x=>x.phase==='after-activation');
     const items=[],seen=new Set();
-    for(const c of captures)for(const it of c.json?.itemList||[]){const id=String(it?.id||'');if(!id||seen.has(id))continue;seen.add(id);const st=it.stats||{};items.push({id,author:it.author?.uniqueId||null,desc:it.desc||'',views:st.playCount??null,likes:st.diggCount??null,comments:st.commentCount??null,shares:st.shareCount??null,saves:st.collectCount??null})}
-    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:repostAction.clicked,clickTarget:repostAction,captureCount:captures.length,captures:captures.map(x=>({status:x.status,bytes:x.bytes,itemCount:x.json?.itemList?.length??0,summary:x.json?{topLevelFields:Object.keys(x.json).filter(k=>!/(token|signature|verify|cookie)/i.test(k)),statusCode:x.json.statusCode??null,statusMsg:x.json.statusMsg??null,hasMore:x.json.hasMore??null,cursor:x.json.cursor??null}:null})),itemCount:items.length,items,actions};
+    for(const c of valid)for(const it of c.json?.itemList||[]){const id=String(it?.id||'');if(!id||seen.has(id))continue;seen.add(id);const st=it.stats||{};items.push({id,author:it.author?.uniqueId||null,desc:it.desc||'',views:st.playCount??null,likes:st.diggCount??null,comments:st.commentCount??null,shares:st.shareCount??null,saves:st.collectCount??null})}
+    const safe=c=>({phase:c.phase,status:c.status,bytes:c.bytes,itemCount:c.json?.itemList?.length??0,summary:c.json?{topLevelFields:Object.keys(c.json).filter(k=>!/(token|signature|verify|cookie)/i.test(k)),statusCode:c.json.statusCode??null,statusMsg:c.json.statusMsg??null,hasMore:c.json.hasMore??null,cursor:c.json.cursor??null}:null});
+    return {kind:'tiktok-repost-capture',createdAt:new Date().toISOString(),username:user,clickedReposts:activation.clicked,activation,tabMap:tabMap.slice(0,120),captureCount:valid.length,preloadCaptureCount:captures.length-valid.length,captures:valid.map(safe),preloadCaptures:captures.filter(x=>x.phase==='preload').map(safe),itemCount:items.length,items,actions};
   }finally{await browser?.close().catch(()=>{})}
 }
