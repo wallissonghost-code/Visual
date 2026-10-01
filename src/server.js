@@ -221,7 +221,7 @@ app.get('/api/tiktok/fingerprint-live',async(req,res)=>{
   }
   send('stage',{stage:'broad',message:'Busca ampla por contexto e superfícies públicas…'});
   const broadUrls=['https://www.tiktok.com/oembed?url='+encodeURIComponent('https://www.tiktok.com/@'+username+'/video/'+id),'https://www.tiktok.com/embed/v2/'+id,'https://www.tiktok.com/embed/@'+username];
-  for(const url of broadUrls){try{const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36','accept-language':'pt-BR,pt;q=0.9'}),body=await r.text();scan(body,'BROAD',url.includes('oembed')?'OEMBED':url.includes('/v2/')?'EMBED_ITEM':'EMBED_PROFILE',id);send('broad',{url:r.url,status:r.status,bytes:Buffer.byteLength(body)})}catch(e){send('broad',{url,error:String(e.message||e)})}}
+  for(const url of broadUrls){try{const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36','accept-language':'pt-BR,pt;q=0.9'}});const body=await r.text();scan(body,'BROAD',url.includes('oembed')?'OEMBED':url.includes('/v2/')?'EMBED_ITEM':'EMBED_PROFILE',id);send('broad',{url:r.url,status:r.status,bytes:Buffer.byteLength(body)})}catch(e){send('broad',{url,error:String(e.message||e)})}}
   const keys=['user','id','views','likes','comments','saves','caption','hashtag'],missing=keys.filter(k=>!found.has(k));send('done',{result:{kind:'tiktok-fingerprint-live',input,resolved:{username,id,realType,finalUrl},expected,found:Object.fromEntries(found),missing,evidence,createdAt:new Date().toISOString()}});
  }catch(e){send('error',{error:String(e.message||e)})}finally{if(!res.writableEnded)res.end()}
 });
