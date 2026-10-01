@@ -193,6 +193,39 @@ app.get('/api/tiktok/photo-vs-video-flow',async(req,res)=>{res.setHeader('cache-
  const [nodePhoto,nodeVideo]=await Promise.all([apiLike(photoUrl),apiLike(videoUrl)]);
  res.json({kind:'photo-vs-video-api-flow',createdAt:new Date().toISOString(),input,resolved:{username,id,realType,finalUrl},urls:{photoUrl,videoUrl},apiBehavior:{linkAcceptedByCurrentApi:realType==='video',reason:realType==='video'?'aceito':'provider atual exige /video/; /photo/ é rejeitado antes da coleta',jsonImportedUrl:videoUrl},browser:{short:browser.results?.[0]||null,photo:browser.results?.[1]||null,video:browser.results?.[2]||null},nodeFetch:{photo:nodePhoto,video:nodeVideo},note:'Reprodução diagnóstica. Api não foi alterada. VIDEO FORÇADO representa a URL criada hoje pelo importador JSON da Api.'});
  }catch(e){res.status(400).json({error:String(e.message||e)})}});
+
+app.get('/api/tiktok/fingerprint-live',async(req,res)=>{
+ res.setHeader('cache-control','no-store');res.setHeader('content-type','application/x-ndjson; charset=utf-8');res.setHeader('x-accel-buffering','no');res.flushHeaders?.();
+ const input=String(req.query.url||'https://vt.tiktok.com/ZSbyEyHVJ/').trim(),expected={username:String(req.query.username||'oopedrogames').replace(/^@/,''),views:String(req.query.views||'136'),likes:String(req.query.likes||'5'),comments:String(req.query.comments||'5'),saves:String(req.query.saves||'0'),caption:String(req.query.caption||'TikTok, me conecte com pessoas que jogam Roblox.'),hashtag:String(req.query.hashtag||'#RoubeUmOvo')};
+ let closed=false;req.on('close',()=>closed=true);const send=(type,data={})=>{if(!closed&&!res.writableEnded)res.write(JSON.stringify({type,...data})+'\n')};
+ const found=new Map(),evidence=[];const emitHit=(key,source,route,context)=>{if(found.has(key))return;const hit={key,source,route,context:String(context||'').slice(0,700)};found.set(key,hit);evidence.push(hit);send('hit',hit)};
+ const scan=(text,source,route,id)=>{const body=String(text||'');const low=body.toLowerCase();const around=(needle)=>{const p=low.indexOf(String(needle).toLowerCase());return p<0?'':body.slice(Math.max(0,p-260),Math.min(body.length,p+String(needle).length+520)).replace(/\s+/g,' ')};
+  if(expected.username&&low.includes(expected.username.toLowerCase()))emitHit('user',source,route,around(expected.username));
+  if(id&&body.includes(id))emitHit('id',source,route,around(id));
+  if(expected.caption&&low.includes(expected.caption.toLowerCase()))emitHit('caption',source,route,around(expected.caption));
+  if(expected.hashtag&&low.includes(expected.hashtag.toLowerCase()))emitHit('hashtag',source,route,around(expected.hashtag));
+  const metric=(key,names,val)=>{if(!val)return;for(const name of names){const re=new RegExp('["\\\\\\']?'+name+'["\\\\\\']?\\\\s*[:=]\\\\s*["\\\\\\']?'+val+'(?:["\\\\\\']|\\\\b)','i');const m=body.match(re);if(m){emitHit(key,source,route,around(m[0]));break}}};
+  metric('views',['playCount','viewCount','play_count'],expected.views);metric('likes',['diggCount','likeCount','digg_count'],expected.likes);metric('comments',['commentCount','comment_count'],expected.comments);metric('saves',['collectCount','saveCount','collect_count'],expected.saves);
+ };
+ try{
+  send('stage',{stage:'resolve',message:'Resolvendo link curto…'});const rr=await fetch(input,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36','accept-language':'pt-BR,pt;q=0.9'}});
+  const first=await rr.text(),finalUrl=String(rr.url||''),m=finalUrl.match(/\/@([^/?#]+)\/(video|photo)\/(\d{10,})/i);if(!m)throw Error('Não resolveu @user + tipo + ID: '+finalUrl);
+  const username=decodeURIComponent(m[1]),realType=m[2].toLowerCase(),id=m[3],urls=[['ORIGINAL',finalUrl],['VIDEO','https://www.tiktok.com/@'+username+'/video/'+id],['PHOTO','https://www.tiktok.com/@'+username+'/photo/'+id]];
+  send('resolved',{username,id,realType,finalUrl});scan(first,'HTML','ORIGINAL',id);
+  for(const [route,url] of urls){send('stage',{stage:route.toLowerCase(),message:'Varrendo '+route+'…'});
+   try{const r=route==='ORIGINAL'?null:await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36','accept-language':'pt-BR,pt;q=0.9'}});
+    const body=route==='ORIGINAL'?first:await r.text(),used=route==='ORIGINAL'?finalUrl:r.url;scan(body,'HTML',route,id);
+    const scripts=[...body.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/gi)].map(x=>x[1]).filter(x=>x.length>30);for(let i=0;i<scripts.length;i++)scan(scripts[i],'SCRIPT#'+i,route,id);
+    send('routeDone',{route,url:used,bytes:Buffer.byteLength(body)});
+   }catch(e){send('routeDone',{route,error:String(e.message||e)})}
+  }
+  send('stage',{stage:'broad',message:'Busca ampla por contexto e superfícies públicas…'});
+  const broadUrls=['https://www.tiktok.com/oembed?url='+encodeURIComponent('https://www.tiktok.com/@'+username+'/video/'+id),'https://www.tiktok.com/embed/v2/'+id,'https://www.tiktok.com/embed/@'+username];
+  for(const url of broadUrls){try{const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131 Safari/537.36','accept-language':'pt-BR,pt;q=0.9'}),body=await r.text();scan(body,'BROAD',url.includes('oembed')?'OEMBED':url.includes('/v2/')?'EMBED_ITEM':'EMBED_PROFILE',id);send('broad',{url:r.url,status:r.status,bytes:Buffer.byteLength(body)})}catch(e){send('broad',{url,error:String(e.message||e)})}}
+  const keys=['user','id','views','likes','comments','saves','caption','hashtag'],missing=keys.filter(k=>!found.has(k));send('done',{result:{kind:'tiktok-fingerprint-live',input,resolved:{username,id,realType,finalUrl},expected,found:Object.fromEntries(found),missing,evidence,createdAt:new Date().toISOString()}});
+ }catch(e){send('error',{error:String(e.message||e)})}finally{if(!res.writableEnded)res.end()}
+});
+
 app.get('/api/tiktok/video-vs-photo-flow',async(req,res)=>{res.setHeader('cache-control','no-store');const input=String(req.query.url||'https://vt.tiktok.com/ZSbyW8Tke/').trim();try{
  const rr=await fetch(input,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36','accept-language':'pt-BR,pt;q=0.9,en;q=0.8'}});
  const finalUrl=String(rr.url||''),m=finalUrl.match(/\/(@[^/?#]+)\/(video|photo)\/(\d{10,})/i);if(!m)throw new Error('Não resolveu @user + tipo + ID: '+finalUrl);
