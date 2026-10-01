@@ -204,7 +204,7 @@ app.get('/api/tiktok/fingerprint-live',async(req,res)=>{
   if(id&&body.includes(id))emitHit('id',source,route,around(id));
   if(expected.caption&&low.includes(expected.caption.toLowerCase()))emitHit('caption',source,route,around(expected.caption));
   if(expected.hashtag&&low.includes(expected.hashtag.toLowerCase()))emitHit('hashtag',source,route,around(expected.hashtag));
-  const metric=(key,names,val)=>{if(!val)return;for(const name of names){const re=new RegExp('["\\\\\\']?'+name+'["\\\\\\']?\\\\s*[:=]\\\\s*["\\\\\\']?'+val+'(?:["\\\\\\']|\\\\b)','i');const m=body.match(re);if(m){emitHit(key,source,route,around(m[0]));break}}};
+  const metric=(key,names,val)=>{if(!val)return;for(const name of names){const re=new RegExp('(?:"|\\\\u0022)?'+name+'(?:"|\\\\u0022)?\\\\s*[:=]\\\\s*(?:"|\\\\u0022)?'+val+'(?:"|\\\\u0022|\\\\b)','i');const mm=body.match(re);if(mm){emitHit(key,source,route,around(mm[0]));break}}};
   metric('views',['playCount','viewCount','play_count'],expected.views);metric('likes',['diggCount','likeCount','digg_count'],expected.likes);metric('comments',['commentCount','comment_count'],expected.comments);metric('saves',['collectCount','saveCount','collect_count'],expected.saves);
  };
  try{
