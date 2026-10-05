@@ -327,8 +327,20 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
  try{
   const {TikTokLiveConnection,WebcastEvent,ControlEvent,EnvelopeDisplay}=await import('tiktok-live-connector');
   connection=new TikTokLiveConnection(username,{processInitialData:true,enableExtendedGiftInfo:false});
-  const connectedAt=Date.now(), envelopes=[], methods={};
-  connection.on('decodedData',data=>{const m=String(data?.method||data?.type||'unknown');methods[m]=(methods[m]||0)+1});
+  const connectedAt=Date.now(), envelopes=[], methods={}, treasureSignals=[];
+  connection.on('decodedData',(...args)=>{
+   const data=args.length===1?args[0]:args;
+   const candidates=[data?.method,data?.type,data?.event,data?.name,data?.messageType,data?.[0],data?.[0]?.method,data?.[0]?.type,data?.[1]?.method,data?.[1]?.type];
+   const m=String(candidates.find(v=>typeof v==='string'&&v)||'unknown');
+   methods[m]=(methods[m]||0)+1;
+   try{
+    const raw=JSON.stringify(data,(_k,v)=>typeof v==='bigint'?v.toString():v);
+    if(/envelope|treasure|luckmoney|lucky|reward|unpack|goody.?bag/i.test(raw)){
+     treasureSignals.push({method:m,preview:raw.slice(0,4000)});
+     if(treasureSignals.length>20)treasureSignals.shift();
+    }
+   }catch{}
+  });
   connection.on(WebcastEvent.ENVELOPE,data=>{
    const info=data?.envelopeInfo;
    const isNew=data?.display===EnvelopeDisplay.ENVELOPE_DISPLAY_NEW;
@@ -352,7 +364,7 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
   const roomInfo=connection?.state?.roomInfo||connection?.roomInfo||state?.roomInfo||null;
   const roomAuth=roomInfo?.data?.room_auth||roomInfo?.room_auth||null;
   const treasurePermission=roomAuth?.anchor_level_permission?.treasure_box??roomAuth?.GoldenEnvelope??null;
-  timer=setTimeout(()=>finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:envelopes.length>0,treasurePermission,roomAuth,methods,observeMs:Date.now()-connectedAt,note:envelopes.length?'Novo WebcastEnvelopeMessage observado.':'Nenhum NOVO evento de baú foi observado nesta janela. Um baú criado antes da conexão pode não ser reenviado.'}),observeMs);
+  timer=setTimeout(()=>finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:envelopes.length>0,treasurePermission,roomAuth,methods,treasureSignals,observeMs:Date.now()-connectedAt,note:envelopes.length?'Novo WebcastEnvelopeMessage observado.':'Nenhum NOVO evento de baú foi observado nesta janela. Um baú criado antes da conexão pode não ser reenviado.'}),observeMs);
  }catch(e){finish({kind:'tiktok-treasure-watch',username,live:false,connected:false,envelopes:[],treasureDetected:false,error:String(e.message||e),note:'Falha ao conectar ao Webcast da LIVE.'},200)}
 });
 
