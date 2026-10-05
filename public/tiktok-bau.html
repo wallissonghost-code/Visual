@@ -38,23 +38,19 @@ function row(name,value,ok){return '<div class="diag-row"><b>'+name+'</b><span>'
 function flatten(v,out=[],depth=0){if(depth>9||v==null)return out;if(typeof v==='string'){out.push(v);return out}if(typeof v==='number'||typeof v==='boolean'){out.push(String(v));return out}if(Array.isArray(v)){for(const x of v)flatten(x,out,depth+1);return out}if(typeof v==='object'){for(const [k,x] of Object.entries(v)){out.push(k);flatten(x,out,depth+1)}}return out}
 run.onclick=async()=>{
  const user=usernameOf(target.value);if(!/^[A-Za-z0-9._-]{2,32}$/.test(user)){alert('Informe um @ válido ou URL de perfil do TikTok.');return}
- const liveUrl='https://www.tiktok.com/@'+user+'/live';run.disabled=true;status.classList.remove('hidden');result.classList.add('hidden');state.textContent='Abrindo @'+user+'…';detail.textContent='Analisando a rota pública da LIVE e os sinais carregados pela página.';
+ const liveUrl='https://www.tiktok.com/@'+user+'/live';run.disabled=true;status.classList.remove('hidden');result.classList.add('hidden');state.textContent='Abrindo @'+user+'…';detail.textContent='Conectando ao Webcast da LIVE e observando eventos de baú por 30 segundos.';
  try{
-  const r=await fetch('/api/network-map',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({target:liveUrl,deep:true})});
+  const r=await fetch('/api/tiktok/treasure-watch?username='+encodeURIComponent(user)+'&observeMs=30000');
   const data=await r.json();if(!r.ok)throw new Error(data.error||('HTTP '+r.status));
-  const corpus=flatten(data).join('\n');const low=corpus.toLowerCase();
-  const profileSeen=low.includes(user.toLowerCase());
-  const offlineHints=['live has ended','live ended','not currently live','isn’t live','is not live','offline','live terminou','não está ao vivo'];
-  const liveHints=['live room','live_room','room_id','roomid','webcast','livecenter','livecenter','/live','live detail','liveroom'];
-  const offline=offlineHints.some(x=>low.includes(x)), liveSignal=liveHints.some(x=>low.includes(x));
-  const liveDetected=!offline&&liveSignal;
-  const chestHints=['treasure box','treasure_box','treasurebox','lucky box','luckybox','gift box','gift_box','reward box','reward_box','chest','baú','bau','countdown'];
-  const rewardHits=chestHints.filter(x=>low.includes(x));
-  const chestDetected=liveDetected&&rewardHits.length>0;
-  diag.innerHTML=row('Perfil',profileSeen?'@'+user+' encontrado':'@'+user+' não confirmado',profileSeen)+row('Rota LIVE',liveDetected?'sinais de LIVE encontrados':offline?'perfil parece OFFLINE':'resultado inconclusivo',liveDetected?true:offline?false:null)+row('Baú / recompensa',chestDetected?'sinal detectado':liveDetected?'nenhum sinal encontrado':'não verificável',chestDetected?true:liveDetected?false:null);
-  bau.innerHTML=chestDetected?'<h3>🎁 BAÚ DETECTADO</h3><p class="muted">Sinais encontrados: '+rewardHits.join(', ')+'</p>':liveDetected?'<h3>🔴 LIVE detectada · nenhum baú confirmado</h3><p class="muted">A página está ao vivo, mas esta leitura não encontrou marcadores públicos de recompensa.</p>':offline?'<h3>⚫ PERFIL OFFLINE</h3><p class="muted">Não há LIVE ativa para verificar agora.</p>':'<h3>🟡 RESULTADO INCONCLUSIVO</h3><p class="muted">O TikTok não expôs sinais suficientes nesta tentativa. Isso não prova que não exista LIVE ou baú.</p>';
+  const profileSeen=!!user;
+  const offline=!data.connected||data.live===false;
+  const liveDetected=!!data.connected&&data.live!==false;
+  const rewardHits=Array.isArray(data.envelopes)?data.envelopes:[];
+  const chestDetected=!!data.treasureDetected;
+  diag.innerHTML=row('Perfil',profileSeen?'@'+user+' encontrado':'@'+user+' não confirmado',profileSeen)+row('Rota LIVE',liveDetected?'sinais de LIVE encontrados':offline?'perfil parece OFFLINE':'resultado inconclusivo',liveDetected?true:offline?false:null)+row('Webcast',data.connected?'conectado':'não conectado',data.connected?true:false)+row('Baú / recompensa',chestDetected?'NOVO baú detectado':liveDetected?'nenhum novo evento em 30s':'não verificável',chestDetected?true:liveDetected?null:false);
+  bau.innerHTML=chestDetected?'<h3>🎁 BAÚ DETECTADO</h3><p class="muted">'+rewardHits.map(x=>(x.diamondCount||0)+' moedas/diamantes · abre em '+(x.opensInSeconds??'?')+'s · '+(x.sendUserName||'remetente não informado')).join('<br>')+'</p>':liveDetected?'<h3>🔴 LIVE conectada · nenhum NOVO baú em 30s</h3><p class="muted">O Webcast foi conectado, mas nenhum WebcastEnvelopeMessage novo chegou durante a janela. Um baú lançado antes da conexão pode não ser reenviado.</p>':offline?'<h3>⚫ PERFIL OFFLINE</h3><p class="muted">Não há LIVE ativa para verificar agora.</p>':'<h3>🟡 RESULTADO INCONCLUSIVO</h3><p class="muted">O TikTok não expôs sinais suficientes nesta tentativa. Isso não prova que não exista LIVE ou baú.</p>';
   evidence.textContent=JSON.stringify({username:user,liveUrl,profileSeen,offline,liveSignal,liveDetected,rewardHits,chestDetected,map:data},null,2);
-  result.classList.remove('hidden');state.textContent='Verificação concluída';detail.textContent='O detector é experimental e só classifica sinais públicos observáveis; ausência de sinal não é prova de ausência de baú.';
+  result.classList.remove('hidden');state.textContent='Verificação concluída';detail.textContent='A observação usa o evento WebcastEnvelopeMessage. Ausência de evento durante 30s não prova que não exista um baú criado antes da conexão.';
  }catch(e){state.textContent='Falha na verificação';detail.textContent=String(e.message||e);diag.innerHTML=row('Verificação','falhou',false);bau.innerHTML='<h3>Não foi possível concluir</h3><p class="muted">'+String(e.message||e)+'</p>';evidence.textContent=String(e.stack||e);result.classList.remove('hidden')}
  finally{run.disabled=false}
 };
