@@ -319,7 +319,7 @@ app.post('/api/tiktok/profile',async(req,res)=>{const username=String(req.body?.
 
 app.get('/api/tiktok/treasure-watch',async(req,res)=>{
  const username=String(req.query.username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
- const observeMs=Math.min(90000,Math.max(5000,Number(req.query.observeMs)||30000));
+ const observeMs=Math.min(90000,Math.max(5000,Number(req.query.observeMs)||5000));
  if(!username)return res.status(400).json({error:'Informe o @user.'});
  res.setHeader('cache-control','no-store');
  let connection=null,timer=null,settled=false;
