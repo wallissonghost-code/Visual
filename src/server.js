@@ -327,7 +327,8 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
  try{
   const {TikTokLiveConnection,WebcastEvent,ControlEvent,EnvelopeDisplay}=await import('tiktok-live-connector');
   connection=new TikTokLiveConnection(username,{processInitialData:true,enableExtendedGiftInfo:false});
-  const connectedAt=Date.now(), envelopes=[];
+  const connectedAt=Date.now(), envelopes=[], methods={};
+  connection.on('decodedData',data=>{const m=String(data?.method||data?.type||'unknown');methods[m]=(methods[m]||0)+1});
   connection.on(WebcastEvent.ENVELOPE,data=>{
    const info=data?.envelopeInfo;
    const isNew=data?.display===EnvelopeDisplay.ENVELOPE_DISPLAY_NEW;
@@ -348,7 +349,10 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
   connection.on(WebcastEvent.STREAM_END,()=>finish({kind:'tiktok-treasure-watch',username,live:false,connected:true,envelopes,treasureDetected:envelopes.length>0,observeMs:Date.now()-connectedAt,note:'A LIVE terminou durante a observação.'}));
   connection.on(ControlEvent.ERROR,()=>{});
   const state=await connection.connect();
-  timer=setTimeout(()=>finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:envelopes.length>0,observeMs:Date.now()-connectedAt,note:envelopes.length?'Novo WebcastEnvelopeMessage observado.':'Nenhum NOVO evento de baú foi observado nesta janela. Um baú criado antes da conexão pode não ser reenviado.'}),observeMs);
+  const roomInfo=connection?.state?.roomInfo||connection?.roomInfo||state?.roomInfo||null;
+  const roomAuth=roomInfo?.data?.room_auth||roomInfo?.room_auth||null;
+  const treasurePermission=roomAuth?.anchor_level_permission?.treasure_box??roomAuth?.GoldenEnvelope??null;
+  timer=setTimeout(()=>finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:envelopes.length>0,treasurePermission,roomAuth,methods,observeMs:Date.now()-connectedAt,note:envelopes.length?'Novo WebcastEnvelopeMessage observado.':'Nenhum NOVO evento de baú foi observado nesta janela. Um baú criado antes da conexão pode não ser reenviado.'}),observeMs);
  }catch(e){finish({kind:'tiktok-treasure-watch',username,live:false,connected:false,envelopes:[],treasureDetected:false,error:String(e.message||e),note:'Falha ao conectar ao Webcast da LIVE.'},200)}
 });
 
