@@ -316,6 +316,42 @@ const discovered=[...found],knownSet=new Set(gold),foundSet=new Set(discovered),
 app.post('/api/tiktok/pc-gold-server/start',(req,res)=>{res.setHeader('cache-control','no-store');const username=String(req.query.username||req.body?.username||'oopedrogames').trim().replace(/^@/,'');const targetId=String(req.query.targetId||req.body?.targetId||'7691328584602029332').trim();const id=Date.now().toString(36)+Math.random().toString(36).slice(2,8),job={id,status:'queued',startedAt:Date.now(),events:[],result:null,error:null};pcGoldJobs.set(id,job);runPcGoldJob(job,username,targetId);setTimeout(()=>pcGoldJobs.delete(id),10*60*1000);res.json({ok:true,jobId:id})});
 app.get('/api/tiktok/pc-gold-server/status',(req,res)=>{res.setHeader('cache-control','no-store');const job=pcGoldJobs.get(String(req.query.jobId||''));if(!job)return res.status(404).json({error:'JOB_NOT_FOUND'});res.json(pcGoldJobPublic(job))});
 app.post('/api/tiktok/profile',async(req,res)=>{const username=String(req.body?.username||'').trim();if(!username)return res.status(400).json({error:'Informe o @user.'});res.setHeader('content-type','application/x-ndjson; charset=utf-8');res.setHeader('cache-control','no-store');const send=x=>res.write(JSON.stringify(x)+'\n');try{const raw=await dumpTikTokItemList(username,(stage,message)=>send({type:'progress',stage,message}));const networkDumps=(raw.dumps||[]).filter(x=>x.type!=='PROFILE_DOCUMENT');const documentDiagnostics=(raw.dumps||[]).filter(x=>x.type==='PROFILE_DOCUMENT').map(x=>({attempt:x.attempt,...x.documentDiagnostic}));const attempts=networkDumps.map((x,i)=>({name:x.attempt||('item_list #'+(i+1)),status:x.status,bytes:x.summary?.bytes||0,itemCount:x.summary?.itemCount||0,error:x.bodyError||x.summary?.error||null}));const byId=new Map();for(const x of networkDumps){for(const v of x.summary?.items||[]){if(v.id)byId.set(String(v.id),v)}}const videos=[...byId.values()];const result={kind:'tiktok-profile-battery',createdAt:new Date().toISOString(),username:String(raw.username||username).replace(/^@/,''),result:videos.length?'VIDEOS_FOUND':'NO_VIDEOS_FOUND',videoCount:videos.length,videos,attempts,documentDiagnostics,raw,pendingAtReturn:raw.pendingAtReturn,note:videos.length?'Sucesso: vídeos públicos reais encontrados pela listagem do perfil.':'Nenhuma item_list utilizável retornou vídeos neste ambiente. O relatório bruto permanece anexado para diagnóstico.'};send({type:'result',result})}catch(e){send({type:'error',error:'Falha na análise do perfil: '+e.message})}finally{res.end()}});
+
+app.get('/api/tiktok/treasure-watch',async(req,res)=>{
+ const username=String(req.query.username||'').trim().replace(/^@/,'').replace(/[^A-Za-z0-9._-]/g,'');
+ const observeMs=Math.min(90000,Math.max(5000,Number(req.query.observeMs)||30000));
+ if(!username)return res.status(400).json({error:'Informe o @user.'});
+ res.setHeader('cache-control','no-store');
+ let connection=null,timer=null,settled=false;
+ const finish=(payload,status=200)=>{if(settled)return;settled=true;if(timer)clearTimeout(timer);try{connection?.disconnect()}catch{}res.status(status).json(payload)};
+ try{
+  const {TikTokLiveConnection,WebcastEvent,ControlEvent,EnvelopeDisplay}=await import('tiktok-live-connector');
+  connection=new TikTokLiveConnection(username,{processInitialData:true,enableExtendedGiftInfo:false});
+  const connectedAt=Date.now(), envelopes=[];
+  connection.on(WebcastEvent.ENVELOPE,data=>{
+   const info=data?.envelopeInfo;
+   const isNew=data?.display===EnvelopeDisplay.ENVELOPE_DISPLAY_NEW;
+   if(!info||!isNew)return;
+   const unpackAt=Number(info.unpackAt)||null;
+   envelopes.push({
+    envelopeId:info.envelopeId||null,
+    diamondCount:Number(info.diamondCount)||0,
+    peopleCount:Number(info.peopleCount)||0,
+    sendUserName:info.sendUserName||'',
+    sendUserId:info.sendUserId||'',
+    businessType:Number(info.businessType)||0,
+    unpackAt,
+    opensInSeconds:unpackAt?Math.max(0,Math.round(unpackAt-Date.now()/1000)):null,
+    observedAt:new Date().toISOString()
+   });
+  });
+  connection.on(WebcastEvent.STREAM_END,()=>finish({kind:'tiktok-treasure-watch',username,live:false,connected:true,envelopes,treasureDetected:envelopes.length>0,observeMs:Date.now()-connectedAt,note:'A LIVE terminou durante a observação.'}));
+  connection.on(ControlEvent.ERROR,()=>{});
+  const state=await connection.connect();
+  timer=setTimeout(()=>finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:envelopes.length>0,observeMs:Date.now()-connectedAt,note:envelopes.length?'Novo WebcastEnvelopeMessage observado.':'Nenhum NOVO evento de baú foi observado nesta janela. Um baú criado antes da conexão pode não ser reenviado.'}),observeMs);
+ }catch(e){finish({kind:'tiktok-treasure-watch',username,live:false,connected:false,envelopes:[],treasureDetected:false,error:String(e.message||e),note:'Falha ao conectar ao Webcast da LIVE.'},200)}
+});
+
 app.post('/api/network-map',async(req,res)=>{const target=String(req.body?.target||'').trim();if(!/^https?:\/\//i.test(target))return res.status(400).json({error:'Informe uma URL pública http/https.'});const deep=req.body?.deep!==false;try{res.json(await mapUrlRuntime(target,{observeMs:deep?15000:5000,timeoutMs:deep?20000:15000}))}catch(e){res.status(500).json({error:`Falha ao mapear a página: ${e.message}`})}});
 app.post('/api/security/resolve',(req,res)=>{try{const target=String(req.body?.target||'').trim();if(!/^https?:\/\//i.test(target))return res.status(400).json({error:'Informe uma URL pública ou URL do GitHub.'});const data=resolveSecurityTarget(target,crypto.randomUUID());res.json(data)}catch(e){res.status(422).json({error:`Não foi possível preparar o alvo: ${e.message}`})}});
 app.post('/api/audits',(req,res)=>{const{target,mode='repo',profile='visual'}=req.body||{};if(!target||!['repo','url'].includes(mode)||!['visual','security'].includes(profile))return res.status(400).json({error:'target, mode ou profile inválido'});if(mode==='repo'&&!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?\/?$/.test(target))return res.status(400).json({error:'No modo repo use uma URL de repositório GitHub.'});if(mode==='url'&&!/^https?:\/\//.test(target))return res.status(400).json({error:'No modo url use http/https.'});const id=crypto.randomUUID(),job={id,target,mode,profile,status:'queued',createdAt:new Date().toISOString(),output:'',...visualBuildInfo()};jobs.set(id,job);res.status(202).json(job);setImmediate(()=>run(job))});
