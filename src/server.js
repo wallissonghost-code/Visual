@@ -1,4 +1,4 @@
-import express from 'express';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFile} from 'node:child_process';import {resolveSecurityTarget} from './security-target.js';import {visualBuildInfo} from './version.js';import {mapUrlRuntime} from './network-map.js';import {dumpTikTokItemList,inspectTikTokVideoBatch,compareTikTokVideoDetailShapes,observeTikTokQuietly, freshTikTokScreenshot, captureTikTokReposts } from './tiktok-compare.js';
+import express from 'express';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFile} from 'node:child_process';import {resolveSecurityTarget} from './security-target.js';import {visualBuildInfo} from './version.js';import {mapUrlRuntime,inspectTikTokTreasureDom} from './network-map.js';import {dumpTikTokItemList,inspectTikTokVideoBatch,compareTikTokVideoDetailShapes,observeTikTokQuietly, freshTikTokScreenshot, captureTikTokReposts } from './tiktok-compare.js';
 const app=express(),port=process.env.PORT||3000,jobs=new Map();app.use(express.json({limit:'64kb'}));app.use(express.static(path.resolve('public')));app.get('/health',(_,res)=>res.json({ok:true,service:'visual-qa',jobs:jobs.size,...visualBuildInfo()}));app.get('/api/version',(_,res)=>res.json({...visualBuildInfo(),startedAt:new Date().toISOString()}));
 
 function mapFrontityState(source,username,videoIds){
@@ -361,10 +361,11 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
   connection.on(WebcastEvent.STREAM_END,()=>finish({kind:'tiktok-treasure-watch',username,live:false,connected:true,envelopes,treasureDetected:envelopes.length>0,observeMs:Date.now()-connectedAt,note:'A LIVE terminou durante a observação.'}));
   connection.on(ControlEvent.ERROR,()=>{});
   const state=await connection.connect();
+  const domPromise=inspectTikTokTreasureDom(username,{observeMs:3000,timeoutMs:10000}).catch(e=>({kind:'tiktok-treasure-dom',detected:false,error:String(e.message||e)}));
   const roomInfo=connection?.state?.roomInfo||connection?.roomInfo||state?.roomInfo||null;
   const roomAuth=roomInfo?.data?.room_auth||roomInfo?.room_auth||null;
   const treasurePermission=roomAuth?.anchor_level_permission?.treasure_box??roomAuth?.GoldenEnvelope??null;
-  timer=setTimeout(()=>finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:envelopes.length>0,treasurePermission,roomAuth,methods,treasureSignals,observeMs:Date.now()-connectedAt,note:envelopes.length?'Novo WebcastEnvelopeMessage observado.':'Nenhum NOVO evento de baú foi observado nesta janela. Um baú criado antes da conexão pode não ser reenviado.'}),observeMs);
+  timer=setTimeout(async()=>{const dom=await domPromise;const detected=envelopes.length>0||!!dom?.detected;finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:detected,detectionSources:{webcast:envelopes.length>0,dom:!!dom?.detected},dom,treasurePermission,roomAuth,methods,treasureSignals,observeMs:Date.now()-connectedAt,note:detected?'Sinal de baú/recompensa detectado por '+(envelopes.length?'Webcast':'DOM/browser')+'.':'Nenhum sinal de baú foi observado no Webcast nem no DOM público desta sessão.'})},observeMs);
  }catch(e){finish({kind:'tiktok-treasure-watch',username,live:false,connected:false,envelopes:[],treasureDetected:false,error:String(e.message||e),note:'Falha ao conectar ao Webcast da LIVE.'},200)}
 });
 
