@@ -36,7 +36,7 @@ export async function inspectTikTokTreasureDom(username,{observeMs=5000,timeoutM
  if(!user)throw new Error('Informe o @user.');
  const target='https://www.tiktok.com/@'+user+'/live';
  let browser;const signals=[],resourceSignals=[];
- const hint=/treasure|envelope|lucky|luck.?money|reward|goody.?bag|chest|ba[uú]|recompensa/i;
+ const hint=/treasure|envelope|lucky|luck.?money|reward|goody.?bag|gift.?bag|lucky.?bag|bag|sacola|chest|ba[uú]|recompensa/i;
  try{
   browser=await chromium.launch({headless:true});
   const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR'});
