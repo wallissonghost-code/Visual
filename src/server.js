@@ -1,4 +1,4 @@
-import express from 'express';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFile} from 'node:child_process';import {resolveSecurityTarget} from './security-target.js';import {visualBuildInfo} from './version.js';import {mapUrlRuntime,inspectTikTokTreasureDom} from './network-map.js';import {dumpTikTokItemList,inspectTikTokVideoBatch,compareTikTokVideoDetailShapes,observeTikTokQuietly, freshTikTokScreenshot, captureTikTokReposts } from './tiktok-compare.js';
+import express from 'express';import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {execFile} from 'node:child_process';import {resolveSecurityTarget} from './security-target.js';import {visualBuildInfo} from './version.js';import {mapUrlRuntime,inspectTikTokTreasureDom,discoverTikTokLivesDom} from './network-map.js';import {dumpTikTokItemList,inspectTikTokVideoBatch,compareTikTokVideoDetailShapes,observeTikTokQuietly, freshTikTokScreenshot, captureTikTokReposts } from './tiktok-compare.js';
 const app=express(),port=process.env.PORT||3000,jobs=new Map();app.use(express.json({limit:'64kb'}));app.use(express.static(path.resolve('public')));app.get('/health',(_,res)=>res.json({ok:true,service:'visual-qa',jobs:jobs.size,...visualBuildInfo()}));app.get('/api/version',(_,res)=>res.json({...visualBuildInfo(),startedAt:new Date().toISOString()}));
 
 function mapFrontityState(source,username,videoIds){
@@ -392,7 +392,7 @@ app.get('/api/tiktok/live-feed',async(req,res)=>{
    }
    hasMore=!!j?.extra?.has_more;maxTime=String(j?.extra?.max_time||'');
   }
-  res.json({ok:true,kind:'tiktok-live-feed',count:rooms.length,rooms,attempts,hasMore,maxTime:maxTime||null,note:rooms.length?'LIVEs recomendadas retornadas pelo feed público.':'O feed público não retornou LIVEs nesta tentativa.'});
+  let browserFallback=null;if(!rooms.length){browserFallback=await discoverTikTokLivesDom({limit,observeMs:6000,timeoutMs:15000}).catch(e=>({kind:'tiktok-live-dom-discovery',count:0,rooms:[],error:String(e.message||e)}));for(const x of browserFallback.rooms||[])rooms.push(x)}res.json({ok:true,kind:'tiktok-live-feed',source:attempts.some(x=>x.items>0)?'webcast-feed':rooms.length?'browser-public':'none',count:rooms.length,rooms:rooms.slice(0,limit),attempts,browserFallback,hasMore,maxTime:maxTime||null,note:rooms.length?'LIVEs públicas descobertas automaticamente.':'Nem o feed direto nem o navegador público retornaram LIVEs nesta tentativa.'});
  }catch(e){res.status(502).json({ok:false,kind:'tiktok-live-feed',error:String(e.message||e)})}
 });
 
