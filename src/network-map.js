@@ -71,7 +71,7 @@ export async function inspectTikTokTreasureDom(username,{observeMs=5000,timeoutM
 
 export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=15000}={}){
  limit=Math.max(1,Math.min(50,Number(limit)||30));
- let browser;const rooms=new Map(),resources=[],pageDiagnostics=[];const targets=['https://www.tiktok.com/live','https://www.tiktok.com/'];
+ let browser;const rooms=new Map(),resources=[],pageDiagnostics=[],responseDiagnostics=[];const targets=['https://www.tiktok.com/live','https://www.tiktok.com/'];
  const take=(raw,source='network')=>{try{
   const s=String(raw||'');let m;
   const userRe=/tiktok\.com\/@([A-Za-z0-9._-]{2,32})\/live/gi;
@@ -84,7 +84,19 @@ export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=
   const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR'});
   const page=await context.newPage();
   page.on('request',r=>take(clean(r.url()),'network-request'));
-  page.on('response',r=>{const u=clean(r.url());if(/live|room|feed|recommend|webcast/i.test(u))resources.push({url:u,status:r.status(),type:r.request().resourceType()});take(u,'network-response')});
+  page.on('response',async r=>{const u=clean(r.url()),type=r.request().resourceType();if(/live|room|feed|recommend|webcast/i.test(u))resources.push({url:u,status:r.status(),type});take(u,'network-response');
+   if((type==='fetch'||type==='xhr')&&/live|room|feed|recommend|webcast/i.test(u)){
+    try{
+     const ct=String(r.headers()['content-type']||'');
+     if(/json|text/i.test(ct)){
+      const body=await r.text();
+      take(body,'network-body');
+      responseDiagnostics.push({path:(new URL(r.url())).pathname,status:r.status(),type,contentType:ct.split(';')[0],bytes:Buffer.byteLength(body),roomHints:(body.match(/(?:room[_-]?id|roomId|room_id_str)/gi)||[]).length,liveHints:(body.match(/(?:liveRoom|live_room|is_live|status)/gi)||[]).length});
+      if(responseDiagnostics.length>30)responseDiagnostics.shift();
+     }
+    }catch{}
+   }
+  });
   let navigation=null;
   for(const target of targets){
    try{
@@ -103,6 +115,6 @@ export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=
   }
   const merged=[...rooms.values()];
   const byUser=new Map();for(const x of merged){const k=x.username?'u:'+x.username.toLowerCase():'r:'+x.roomId;if(!byUser.has(k))byUser.set(k,x)}
-  return {kind:'tiktok-live-dom-discovery',count:Math.min(limit,byUser.size),rooms:[...byUser.values()].slice(0,limit),navigation,pageDiagnostics,resourceSignals:resources.slice(0,80),observeMs,note:byUser.size?'Perfis/salas LIVE encontrados na superfície pública carregada pelo navegador.':'O navegador público não expôs perfis/salas LIVE nesta tentativa.'};
+  return {kind:'tiktok-live-dom-discovery',count:Math.min(limit,byUser.size),rooms:[...byUser.values()].slice(0,limit),navigation,pageDiagnostics,responseDiagnostics,resourceSignals:resources.slice(0,80),observeMs,note:byUser.size?'Perfis/salas LIVE encontrados na superfície pública carregada pelo navegador.':'O navegador público não expôs perfis/salas LIVE nesta tentativa.'};
  }finally{await browser?.close().catch(()=>{})}
 }
