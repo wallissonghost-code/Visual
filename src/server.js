@@ -369,6 +369,33 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
  }catch(e){finish({kind:'tiktok-treasure-watch',username,live:false,connected:false,envelopes:[],treasureDetected:false,error:String(e.message||e),note:'Falha ao conectar ao Webcast da LIVE.'},200)}
 });
 
+app.get('/api/tiktok/live-feed',async(req,res)=>{
+ try{
+  const limit=Math.max(1,Math.min(50,Number(req.query.limit)||20));
+  const pages=Math.max(1,Math.min(5,Number(req.query.pages)||2));
+  let maxTime='',hasMore=true;const rooms=[],seen=new Set(),attempts=[];
+  for(let page=0;page<pages&&hasMore&&rooms.length<limit;page++){
+   const q=new URLSearchParams({aid:'1988',app_name:'tiktok_web',app_language:'pt-BR',device_platform:'web',browser_language:'pt-BR',browser_name:'Mozilla',browser_platform:'Win32',browser_online:'true',cookie_enabled:'true',channel:'tiktok_web',channel_id:'86'});
+   if(maxTime)q.set('max_time',maxTime);
+   const url='https://webcast.tiktok.com/webcast/feed/?'+q;
+   const r=await fetch(url,{redirect:'follow',headers:{'user-agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/139.0.0.0 Safari/537.36','accept':'application/json,text/plain,*/*','accept-language':'pt-BR,pt;q=0.9,en;q=0.8','referer':'https://www.tiktok.com/','origin':'https://www.tiktok.com'}});
+   const body=await r.text();let j=null;try{j=JSON.parse(body)}catch{}
+   const data=Array.isArray(j?.data)?j.data:[];
+   attempts.push({page:page+1,status:r.status,items:data.length,bytes:Buffer.byteLength(body),hasMore:j?.extra?.has_more??null});
+   if(!r.ok||!j)break;
+   for(const x of data){
+    const room=x?.data||x?.room||{},owner=room?.owner||{},roomId=String(x?.rid||room?.id_str||room?.id||'');
+    const username=String(owner?.display_id||owner?.unique_id||owner?.uniqueId||owner?.username||'').replace(/^@/,'');
+    if(!roomId||seen.has(roomId))continue;seen.add(roomId);
+    rooms.push({roomId,username:username||null,nickname:owner?.nickname||null,title:room?.title||null,viewers:Number(room?.user_count||0)||null,status:room?.status??null,liveUrl:username?'https://www.tiktok.com/@'+username+'/live':null});
+    if(rooms.length>=limit)break;
+   }
+   hasMore=!!j?.extra?.has_more;maxTime=String(j?.extra?.max_time||'');
+  }
+  res.json({ok:true,kind:'tiktok-live-feed',count:rooms.length,rooms,attempts,hasMore,maxTime:maxTime||null,note:rooms.length?'LIVEs recomendadas retornadas pelo feed público.':'O feed público não retornou LIVEs nesta tentativa.'});
+ }catch(e){res.status(502).json({ok:false,kind:'tiktok-live-feed',error:String(e.message||e)})}
+});
+
 app.post('/api/network-map',async(req,res)=>{const target=String(req.body?.target||'').trim();if(!/^https?:\/\//i.test(target))return res.status(400).json({error:'Informe uma URL pública http/https.'});const deep=req.body?.deep!==false;try{res.json(await mapUrlRuntime(target,{observeMs:deep?15000:5000,timeoutMs:deep?20000:15000}))}catch(e){res.status(500).json({error:`Falha ao mapear a página: ${e.message}`})}});
 app.post('/api/security/resolve',(req,res)=>{try{const target=String(req.body?.target||'').trim();if(!/^https?:\/\//i.test(target))return res.status(400).json({error:'Informe uma URL pública ou URL do GitHub.'});const data=resolveSecurityTarget(target,crypto.randomUUID());res.json(data)}catch(e){res.status(422).json({error:`Não foi possível preparar o alvo: ${e.message}`})}});
 app.post('/api/audits',(req,res)=>{const{target,mode='repo',profile='visual'}=req.body||{};if(!target||!['repo','url'].includes(mode)||!['visual','security'].includes(profile))return res.status(400).json({error:'target, mode ou profile inválido'});if(mode==='repo'&&!/^https:\/\/github\.com\/[\w.-]+\/[\w.-]+(?:\.git)?\/?$/.test(target))return res.status(400).json({error:'No modo repo use uma URL de repositório GitHub.'});if(mode==='url'&&!/^https?:\/\//.test(target))return res.status(400).json({error:'No modo url use http/https.'});const id=crypto.randomUUID(),job={id,target,mode,profile,status:'queued',createdAt:new Date().toISOString(),output:'',...visualBuildInfo()};jobs.set(id,job);res.status(202).json(job);setImmediate(()=>run(job))});
