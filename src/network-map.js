@@ -71,7 +71,7 @@ export async function inspectTikTokTreasureDom(username,{observeMs=5000,timeoutM
 
 export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=15000}={}){
  limit=Math.max(1,Math.min(50,Number(limit)||30));
- let browser;const rooms=new Map(),resources=[];const targets=['https://www.tiktok.com/live','https://www.tiktok.com/'];
+ let browser;const rooms=new Map(),resources=[],pageDiagnostics=[];const targets=['https://www.tiktok.com/live','https://www.tiktok.com/'];
  const take=(raw,source='network')=>{try{
   const s=String(raw||'');let m;
   const userRe=/tiktok\.com\/@([A-Za-z0-9._-]{2,32})\/live/gi;
@@ -93,11 +93,16 @@ export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=
     const html=await page.content();take(html,'dom-html');
     const links=await page.locator('a[href*="/@"]').evaluateAll(as=>as.map(a=>a.href)).catch(()=>[]);
     links.forEach(x=>take(x,'dom-link'));
+    const title=await page.title().catch(()=>'');
+    const bodyText=(await page.locator('body').innerText({timeout:3000}).catch(()=>'' )).slice(0,2500);
+    const frameUrls=page.frames().map(f=>clean(f.url())).slice(0,30);
+    const challenge=/captcha|verify|verification|security check|unusual traffic|access denied|log in|login|sign up/i.test(title+' '+bodyText);
+    pageDiagnostics.push({target,status:res?.status()||null,finalUrl:clean(page.url()),title,htmlBytes:Buffer.byteLength(html),linkCount:links.length,frameCount:frameUrls.length,frameUrls,challenge,bodyPreview:bodyText.slice(0,1200)});
     if(rooms.size)break;
    }catch(e){navigation={target,status:null,finalUrl:clean(page.url()||target),error:String(e.message||e)}}
   }
   const merged=[...rooms.values()];
   const byUser=new Map();for(const x of merged){const k=x.username?'u:'+x.username.toLowerCase():'r:'+x.roomId;if(!byUser.has(k))byUser.set(k,x)}
-  return {kind:'tiktok-live-dom-discovery',count:Math.min(limit,byUser.size),rooms:[...byUser.values()].slice(0,limit),navigation,resourceSignals:resources.slice(0,80),observeMs,note:byUser.size?'Perfis/salas LIVE encontrados na superfície pública carregada pelo navegador.':'O navegador público não expôs perfis/salas LIVE nesta tentativa.'};
+  return {kind:'tiktok-live-dom-discovery',count:Math.min(limit,byUser.size),rooms:[...byUser.values()].slice(0,limit),navigation,pageDiagnostics,resourceSignals:resources.slice(0,80),observeMs,note:byUser.size?'Perfis/salas LIVE encontrados na superfície pública carregada pelo navegador.':'O navegador público não expôs perfis/salas LIVE nesta tentativa.'};
  }finally{await browser?.close().catch(()=>{})}
 }
