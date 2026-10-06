@@ -39,7 +39,7 @@ export async function inspectTikTokTreasureDom(username,{observeMs=5000,timeoutM
  const hint=/treasure|envelope|lucky|luck.?money|reward|goody.?bag|gift.?bag|lucky.?bag|bag|sacola|chest|ba[uú]|recompensa/i;
  try{
   browser=await chromium.launch({headless:true});
-  const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR'});
+  const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR',viewport:{width:1440,height:900},screen:{width:1440,height:900},deviceScaleFactor:1,isMobile:false,hasTouch:false});
   const page=await context.newPage();
   page.on('response',r=>{const u=clean(r.url());if(hint.test(u)&&!SENSITIVE.test(u))resourceSignals.push({type:'resource',url:u,status:r.status()})});
   const res=await page.goto(target,{waitUntil:'domcontentloaded',timeout:timeoutMs}).catch(()=>null);
@@ -109,7 +109,12 @@ export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=
   for(const target of targets){
    try{
     const res=await page.goto(target,{waitUntil:'domcontentloaded',timeout:timeoutMs});navigation={target,status:res?.status()||null,finalUrl:clean(page.url())};
-    await page.waitForTimeout(observeMs);
+    await page.waitForTimeout(Math.max(observeMs,8000));
+    if(target.includes('/live')){
+     for(let i=0;i<4;i++){await page.mouse.wheel(0,700).catch(()=>{});await page.waitForTimeout(1200)}
+     await page.evaluate(()=>window.scrollTo(0,document.body.scrollHeight)).catch(()=>{});
+     await page.waitForTimeout(5000);
+    }
     const html=await page.content();take(html,'dom-html');
     const links=await page.locator('a[href*="/@"]').evaluateAll(as=>as.map(a=>a.href)).catch(()=>[]);
     links.forEach(x=>take(x,'dom-link'));
