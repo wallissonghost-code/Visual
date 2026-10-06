@@ -327,7 +327,7 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
  try{
   const {TikTokLiveConnection,WebcastEvent,ControlEvent,EnvelopeDisplay}=await import('tiktok-live-connector');
   connection=new TikTokLiveConnection(username,{processInitialData:true,enableExtendedGiftInfo:false});
-  const connectedAt=Date.now(), envelopes=[], methods={}, treasureSignals=[];
+  const connectedAt=Date.now(), envelopes=[], methods={}, treasureSignals=[], rewardSignals={chest:[],bag:[],unknown:[]};
   connection.on('decodedData',(...args)=>{
    const data=args.length===1?args[0]:args;
    const candidates=[data?.method,data?.type,data?.event,data?.name,data?.messageType,data?.[0],data?.[0]?.method,data?.[0]?.type,data?.[1]?.method,data?.[1]?.type];
@@ -336,7 +336,7 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
    try{
     const raw=JSON.stringify(data,(_k,v)=>typeof v==='bigint'?v.toString():v);
     if(/envelope|treasure|luckmoney|lucky|reward|unpack|goody.?bag/i.test(raw)){
-     treasureSignals.push({method:m,preview:raw.slice(0,4000)});
+     const signal={method:m,preview:raw.slice(0,4000)}; treasureSignals.push(signal); const kind=/goody.?bag|bag|gift.?bag|lucky.?bag|sacola/i.test(raw)?'bag':/envelope|treasure|luckmoney|lucky.?money|chest|ba[uú]/i.test(raw)?'chest':'unknown'; rewardSignals[kind].push(signal); if(rewardSignals[kind].length>12)rewardSignals[kind].shift();
      if(treasureSignals.length>20)treasureSignals.shift();
     }
    }catch{}
@@ -353,6 +353,7 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
     sendUserName:info.sendUserName||'',
     sendUserId:info.sendUserId||'',
     businessType:Number(info.businessType)||0,
+    rewardKind:/bag/i.test(String(info.businessType||''))?'bag':'chest',
     unpackAt,
     opensInSeconds:unpackAt?Math.max(0,Math.round(unpackAt-Date.now()/1000)):null,
     observedAt:new Date().toISOString()
@@ -365,7 +366,7 @@ app.get('/api/tiktok/treasure-watch',async(req,res)=>{
   const roomInfo=connection?.state?.roomInfo||connection?.roomInfo||state?.roomInfo||null;
   const roomAuth=roomInfo?.data?.room_auth||roomInfo?.room_auth||null;
   const treasurePermission=roomAuth?.anchor_level_permission?.treasure_box??roomAuth?.GoldenEnvelope??null;
-  timer=setTimeout(async()=>{const dom=await domPromise;const detected=envelopes.length>0||!!dom?.detected;finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:detected,detectionSources:{webcast:envelopes.length>0,dom:!!dom?.detected},dom,treasurePermission,roomAuth,methods,treasureSignals,observeMs:Date.now()-connectedAt,note:detected?'Sinal de baú/recompensa detectado por '+(envelopes.length?'Webcast':'DOM/browser')+'.':'Nenhum sinal de baú foi observado no Webcast nem no DOM público desta sessão.'})},observeMs);
+  timer=setTimeout(async()=>{const dom=await domPromise;const detected=envelopes.length>0||!!dom?.detected;finish({kind:'tiktok-treasure-watch',username,live:true,connected:true,roomId:state?.roomId||connection?.roomId||null,envelopes,treasureDetected:detected,detectionSources:{webcast:envelopes.length>0,dom:!!dom?.detected},dom,treasurePermission,roomAuth,methods,treasureSignals,rewardSignals,rewardSummary:{chestSignals:rewardSignals.chest.length,bagSignals:rewardSignals.bag.length,unknownSignals:rewardSignals.unknown.length},observeMs:Date.now()-connectedAt,note:detected?'Sinal de baú/sacola/recompensa detectado por '+(envelopes.length?'Webcast':'DOM/browser')+'.':'Nenhum sinal de baú ou sacola foi observado no Webcast nem no DOM público desta sessão.'})},observeMs);
  }catch(e){finish({kind:'tiktok-treasure-watch',username,live:false,connected:false,envelopes:[],treasureDetected:false,error:String(e.message||e),note:'Falha ao conectar ao Webcast da LIVE.'},200)}
 });
 
