@@ -84,14 +84,22 @@ export async function discoverTikTokLivesDom({limit=30,observeMs=6000,timeoutMs=
   const context=await browser.newContext({serviceWorkers:'block',locale:'pt-BR'});
   const page=await context.newPage();
   page.on('request',r=>take(clean(r.url()),'network-request'));
-  page.on('response',async r=>{const u=clean(r.url()),type=r.request().resourceType();if(/live|room|feed|recommend|webcast/i.test(u))resources.push({url:u,status:r.status(),type});take(u,'network-response');
+  page.on('response',async r=>{const u=clean(r.url()),type=r.request().resourceType();if(/live|room|feed|recommend|webcast/i.test(u)){let safeUrl=u;try{const x=new URL(r.url());safeUrl=x.origin+x.pathname}catch{}resources.push({url:safeUrl,status:r.status(),type});}take(u,'network-response');
    if((type==='fetch'||type==='xhr')&&/live|room|feed|recommend|webcast/i.test(u)){
     try{
      const ct=String(r.headers()['content-type']||'');
      if(/json|text/i.test(ct)){
       const body=await r.text();
       take(body,'network-body');
-      responseDiagnostics.push({path:(new URL(r.url())).pathname,status:r.status(),type,contentType:ct.split(';')[0],bytes:Buffer.byteLength(body),roomHints:(body.match(/(?:room[_-]?id|roomId|room_id_str)/gi)||[]).length,liveHints:(body.match(/(?:liveRoom|live_room|is_live|status)/gi)||[]).length});
+      let structure=null;
+      try{
+       const data=JSON.parse(body);
+       const keys=o=>o&&typeof o==='object'&&!Array.isArray(o)?Object.keys(o).slice(0,40):[];
+       const findArrays=(o,path='',depth=0,out=[])=>{if(depth>4||!o||typeof o!=='object'||out.length>=20)return out;for(const [k,v] of Object.entries(o)){const p=path?path+'.'+k:k;if(Array.isArray(v)){out.push({path:p,length:v.length,sampleKeys:v[0]&&typeof v[0]==='object'?keys(v[0]):[]});if(v[0]&&typeof v[0]==='object')findArrays(v[0],p+'[0]',depth+1,out)}else if(v&&typeof v==='object')findArrays(v,p,depth+1,out)}return out};
+       const findLiveKeys=(o,path='',depth=0,out=[])=>{if(depth>5||!o||typeof o!=='object'||out.length>=40)return out;for(const [k,v] of Object.entries(o)){const p=path?path+'.'+k:k;if(/live|room|webcast|stream/i.test(k))out.push({path:p,type:Array.isArray(v)?'array':typeof v,value:typeof v==='string'||typeof v==='number'||typeof v==='boolean'?String(v).slice(0,100):undefined});if(v&&typeof v==='object')findLiveKeys(v,p,depth+1,out)}return out};
+       structure={topKeys:keys(data),arrays:findArrays(data),liveFields:findLiveKeys(data)};
+      }catch{}
+      responseDiagnostics.push({path:(new URL(r.url())).pathname,status:r.status(),type,contentType:ct.split(';')[0],bytes:Buffer.byteLength(body),roomHints:(body.match(/(?:room[_-]?id|roomId|room_id_str)/gi)||[]).length,liveHints:(body.match(/(?:liveRoom|live_room|is_live|status)/gi)||[]).length,structure});
       if(responseDiagnostics.length>30)responseDiagnostics.shift();
      }
     }catch{}
